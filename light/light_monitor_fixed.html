@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Arduino Light Status</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            padding: 20px;
+        }
+        
+        .container {
+            text-align: center;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            min-width: 350px;
+            max-width: 500px;
+            width: 100%;
+        }
+        
+        h1 {
+            font-size: 2.5em;
+            margin-bottom: 30px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        }
+        
+        .status-display {
+            margin: 30px 0;
+        }
+        
+        .light-bulb {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            margin: 0 auto 20px;
+            transition: all 0.5s ease;
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 3em;
+        }
+        
+        .light-on {
+            background: radial-gradient(circle, #ffeb3b, #ffc107);
+            box-shadow: 0 0 50px #ffeb3b, 0 0 100px #ffeb3b, 0 0 150px #ffeb3b;
+            animation: glow 2s ease-in-out infinite alternate;
+        }
+        
+        .light-off {
+            background: radial-gradient(circle, #424242, #212121);
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+        }
+        
+        @keyframes glow {
+            from {
+                box-shadow: 0 0 30px #ffeb3b, 0 0 60px #ffeb3b, 0 0 90px #ffeb3b;
+            }
+            to {
+                box-shadow: 0 0 50px #ffeb3b, 0 0 100px #ffeb3b, 0 0 150px #ffeb3b;
+            }
+        }
+        
+        .status-text {
+            font-size: 2em;
+            font-weight: bold;
+            margin: 20px 0;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+        
+        .status-on {
+            color: #ffeb3b;
+            text-shadow: 0 0 10px #ffeb3b;
+        }
+        
+        .status-off {
+            color: #9e9e9e;
+        }
+        
+        .last-update {
+            font-size: 0.9em;
+            color: rgba(255, 255, 255, 0.7);
+            margin-top: 20px;
+        }
+        
+        .connection-status {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.8em;
+            font-weight: bold;
+            z-index: 1000;
+        }
+        
+        .connected {
+            background: #4caf50;
+            color: white;
+        }
+        
+        .disconnected {
+            background: #f44336;
+            color: white;
+        }
+        
+        .loading {
+            background: #ff9800;
+            color: white;
+        }
+        
+        .data-log {
+            margin-top: 30px;
+            max-height: 250px;
+            overflow-y: auto;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 10px;
+            padding: 15px;
+        }
+        
+        .data-log h3 {
+            margin-bottom: 15px;
+            font-size: 1.2em;
+        }
+        
+        .data-entry {
+            font-family: monospace;
+            font-size: 0.9em;
+            margin: 8px 0;
+            padding: 8px;
+            border-left: 3px solid #667eea;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 5px;
+        }
+        
+        .error-message {
+            background: rgba(244, 67, 54, 0.2);
+            border: 1px solid #f44336;
+            border-radius: 10px;
+            padding: 15px;
+            margin: 20px 0;
+            color: #ffcdd2;
+        }
+        
+        .debug-info {
+            background: rgba(33, 150, 243, 0.2);
+            border: 1px solid #2196f3;
+            border-radius: 10px;
+            padding: 15px;
+            margin: 20px 0;
+            color: #bbdefb;
+            font-size: 0.8em;
+            font-family: monospace;
+        }
+        
+        @media (max-width: 480px) {
+            .container {
+                padding: 20px;
+                margin: 10px;
+            }
+            
+            h1 {
+                font-size: 2em;
+            }
+            
+            .light-bulb {
+                width: 100px;
+                height: 100px;
+                font-size: 2.5em;
+            }
+            
+            .status-text {
+                font-size: 1.5em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="connection-status loading" id="connectionStatus">Loading...</div>
+    
+    <div class="container">
+        <h1>🏠 Arduino Light Monitor</h1>
+        
+        <div class="status-display">
+            <div class="light-bulb light-off" id="lightBulb">💡</div>
+            <div class="status-text status-off" id="statusText">Loading...</div>
+            <div class="last-update" id="lastUpdate">Connecting to database...</div>
+        </div>
+        
+        <div class="data-log">
+            <h3>Recent Data:</h3>
+            <div id="dataLog">Loading recent entries...</div>
+        </div>
+        
+        <div id="errorMessage" class="error-message" style="display: none;"></div>
+        <div id="debugInfo" class="debug-info" style="display: none;"></div>
+    </div>
+
+    <script>
+        let isConnected = false;
+        let lastDataId = 0;
+        let updateInterval;
+        
+        // Start monitoring when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            updateStatus();
+            startAutoUpdate();
+        });
+        
+        function startAutoUpdate() {
+            // Update every 3 seconds
+            updateInterval = setInterval(updateStatus, 3000);
+        }
+        
+        function updateStatus() {
+            const url = 'simple_backend.php?action=get_status&last_id=' + lastDataId;
+            console.log('Fetching:', url);
+            
+            fetch(url)
+                .then(response => {
+                    console.log('Response status:', response.status);
+                    console.log('Response ok:', response.ok);
+                    
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+                    return response.text();
+                })
+                .then(text => {
+                    console.log('Raw response:', text);
+                    
+                    try {
+                        const data = JSON.parse(text);
+                        console.log('Parsed data:', data);
+                        
+                        if (data.error) {
+                            showError(data.error);
+                            showDebug('Error from server: ' + JSON.stringify(data, null, 2));
+                            setConnectionStatus(false);
+                        } else {
+                            hideError();
+                            showDebug('Success: ' + JSON.stringify(data, null, 2));
+                            setConnectionStatus(true);
+                            updateDisplay(data);
+                        }
+                    } catch (parseError) {
+                        console.error('JSON parse error:', parseError);
+                        showError('Invalid response from server');
+                        showDebug('Raw response: ' + text);
+                        setConnectionStatus(false);
+                    }
+                })
+                .catch(error => {
+                    console.error('Fetch error:', error);
+                    showError('Failed to connect to server: ' + error.message);
+                    showDebug('Fetch failed: ' + error.message);
+                    setConnectionStatus(false);
+                });
+        }
+        
+        function updateDisplay(data) {
+            const lightBulb = document.getElementById('lightBulb');
+            const statusText = document.getElementById('statusText');
+            const lastUpdate = document.getElementById('lastUpdate');
+            const dataLog = document.getElementById('dataLog');
+            
+            // Update status display
+            if (data.current_status) {
+                const status = data.current_status.status;
+                const rawData = data.current_status.raw_data;
+                const timestamp = data.current_status.timestamp;
+                
+                // Update visual elements
+                if (status === 'ON') {
+                    lightBulb.className = 'light-bulb light-on';
+                    statusText.className = 'status-text status-on';
+                    statusText.textContent = 'Light is ON';
+                } else if (status === 'OFF') {
+                    lightBulb.className = 'light-bulb light-off';
+                    statusText.className = 'status-text status-off';
+                    statusText.textContent = 'Light is OFF';
+                } else {
+                    lightBulb.className = 'light-bulb light-off';
+                    statusText.className = 'status-text status-off';
+                    statusText.textContent = 'Unknown Status';
+                }
+                
+                // Update timestamp
+                const date = new Date(timestamp);
+                lastUpdate.textContent = `Last update: ${date.toLocaleTimeString()}`;
+                
+                // Update last ID for polling
+                lastDataId = data.current_status.id;
+            }
+            
+            // Update data log
+            if (data.recent_entries && data.recent_entries.length > 0) {
+                let logHtml = '';
+                
+                data.recent_entries.forEach(entry => {
+                    const date = new Date(entry.timestamp);
+                    logHtml += `<div class="data-entry">
+                        <strong>${date.toLocaleTimeString()}</strong>: ${entry.raw_data} (${entry.status})
+                    </div>`;
+                });
+                
+                dataLog.innerHTML = logHtml;
+            } else {
+                dataLog.innerHTML = 'No data available';
+            }
+        }
+        
+        function setConnectionStatus(connected) {
+            const statusElement = document.getElementById('connectionStatus');
+            
+            if (connected && !isConnected) {
+                statusElement.textContent = 'Connected';
+                statusElement.className = 'connection-status connected';
+                isConnected = true;
+            } else if (!connected && isConnected) {
+                statusElement.textContent = 'Disconnected';
+                statusElement.className = 'connection-status disconnected';
+                isConnected = false;
+            } else if (!connected && !isConnected) {
+                statusElement.textContent = 'Connection Failed';
+                statusElement.className = 'connection-status disconnected';
+            }
+        }
+        
+        function showError(message) {
+            const errorElement = document.getElementById('errorMessage');
+            errorElement.textContent = 'Error: ' + message;
+            errorElement.style.display = 'block';
+        }
+        
+        function hideError() {
+            const errorElement = document.getElementById('errorMessage');
+            errorElement.style.display = 'none';
+        }
+        
+        function showDebug(message) {
+            const debugElement = document.getElementById('debugInfo');
+            debugElement.textContent = message;
+            debugElement.style.display = 'block';
+        }
+        
+        // Handle page visibility changes
+        document.addEventListener('visibilitychange', function() {
+            if (document.hidden) {
+                if (updateInterval) {
+                    clearInterval(updateInterval);
+                }
+            } else {
+                startAutoUpdate();
+                updateStatus();
+            }
+        });
+    </script>
+</body>
+</html>
