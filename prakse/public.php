@@ -138,6 +138,11 @@
             <p>Explore designs created by the community</p>
         </div>
 
+        <div style="margin-bottom: 20px; display:flex; gap:10px; align-items:center;">
+            <input type="text" id="galleryMatrixIp" placeholder="Matrix IP (e.g. 192.168.0.50)" style="flex:1; padding:8px; background:#111; border:1px solid #333; color:#fff; border-radius:5px;">
+            <button onclick="saveGalleryMatrixIp()" class="open-btn" style="flex:0 0 auto;">Save IP</button>
+        </div>
+
         <div id="gallery" class="gallery-container">
             <!-- Designs will be loaded here -->
             <div style="color: #888; grid-column: 1/-1; text-align: center;">Loading designs...</div>
@@ -193,6 +198,7 @@
                             </div>
                             <div class="card-actions">
                                 <a href="editor.php?load=${design.id}" class="open-btn">Open in Editor</a>
+                                <button class="open-btn" onclick="sendDesignToMatrix(${design.id})" style="margin-left:10px;">Send to Matrix</button>
                             </div>
                         </div>
                     `;
@@ -206,6 +212,69 @@
             } catch (error) {
                 console.error('Error loading gallery:', error);
                 document.getElementById('gallery').innerHTML = '<div style="color: red; text-align: center;">Error loading gallery.</div>';
+            }
+        }
+
+        function loadGalleryMatrixIp() {
+            const ip = localStorage.getItem('galleryMatrixIp');
+            const input = document.getElementById('galleryMatrixIp');
+            if (ip && input) {
+                input.value = ip;
+            }
+        }
+
+        function saveGalleryMatrixIp() {
+            const input = document.getElementById('galleryMatrixIp');
+            if (!input) return;
+            const ip = input.value.trim();
+            if (!ip) {
+                alert('Please enter a Matrix IP first.');
+                return;
+            }
+            localStorage.setItem('galleryMatrixIp', ip);
+            alert('Saved Matrix IP for gallery.');
+        }
+
+        async function sendDesignToMatrix(designId) {
+            const input = document.getElementById('galleryMatrixIp');
+            if (!input) {
+                alert('Matrix IP input not found.');
+                return;
+            }
+            const ip = input.value.trim();
+            if (!ip) {
+                alert('Please enter the Matrix IP address.');
+                return;
+            }
+
+            try {
+                const res = await fetch(`api.php?id=${designId}`);
+                const data = await res.json();
+                if (data.status === 'error') {
+                    alert(data.message || 'Error loading design.');
+                    return;
+                }
+
+                const payload = {
+                    width: data.width || 16,
+                    height: data.height || 16,
+                    frames: [data.grid_data],
+                    frame_delay: 80
+                };
+
+                const response = await fetch(`http://${ip}/display`, {
+                    method: 'POST',
+                    body: JSON.stringify(payload)
+                });
+                if (!response.ok) {
+                    alert('Matrix responded with an error status: ' + response.status);
+                    return;
+                }
+                alert('Design sent to matrix.');
+            } catch (err) {
+                console.error('Error sending design to matrix', err);
+                alert('Could not reach the matrix at http://' + ip + '/display.\n' +
+                    'Make sure the matrix is powered and connected to the same network.');
             }
         }
 
@@ -248,6 +317,7 @@
         }
 
         // Initialize
+        loadGalleryMatrixIp();
         loadGallery();
 
         function filterGallery() {

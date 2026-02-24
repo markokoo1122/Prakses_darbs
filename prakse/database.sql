@@ -26,3 +26,17 @@ CREATE TABLE IF NOT EXISTS favorites (
     FOREIGN KEY (design_id) REFERENCES designs(id) ON DELETE CASCADE,
     UNIQUE KEY unique_fav (user_id, design_id)
 );
+
+CREATE TABLE IF NOT EXISTS media_conversions (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT,
+    original_filename VARCHAR(255) NOT NULL,
+    is_gif TINYINT(1) DEFAULT 0,
+    width INT DEFAULT 64,
+    height INT DEFAULT 64,
+    frame_count INT DEFAULT 1,
+    frame_delay INT DEFAULT NULL,
+    arduino_code MEDIUMTEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+);

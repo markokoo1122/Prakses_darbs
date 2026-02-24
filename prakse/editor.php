@@ -78,6 +78,12 @@
                     </div>
                     <button id="saveBtn" style="margin-top: 10px;">Save Design</button>
                 </div>
+
+                <div class="control-group">
+                    <label for="matrixIp">Matrix IP (for sending designs)</label>
+                    <input type="text" id="matrixIp" placeholder="e.g. 192.168.0.50">
+                    <button id="sendToMatrixBtn" style="margin-top: 10px;">Send Current Design to Matrix</button>
+                </div>
             </div>
 
             <!-- LED Matrix -->
@@ -124,5 +130,6 @@
                 .then(() => window.location.reload());
         }
     </script>
+    
 </body>
 </html>

@@ -15,6 +15,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const tabMy = document.getElementById('tabMy');
     const tabFav = document.getElementById('tabFav');
     const tabPublic = document.getElementById('tabPublic');
+    const matrixIpInput = document.getElementById('matrixIp');
+    const sendToMatrixBtn = document.getElementById('sendToMatrixBtn');
 
     let GRID_W = 16;
     let GRID_H = 16;
@@ -28,6 +30,15 @@ document.addEventListener('DOMContentLoaded', () => {
     const eraserBtn = document.getElementById('eraserBtn');
     const bucketBtn = document.getElementById('bucketBtn');
     const sizeBtns = document.querySelectorAll('.size-btn');
+
+    if (matrixIpInput) {
+        const savedIp = localStorage.getItem('matrixIp');
+        if (savedIp) {
+            matrixIpInput.value = savedIp;
+        }
+    }
+
+    let currentMatrixPayload = null; // Stores uploaded animation data
 
     // Tool Event Listeners
     pencilBtn.addEventListener('click', () => setTool('pencil'));
@@ -131,6 +142,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     function applyTool(index) {
+        // If user manually draws, clear the uploaded animation payload
+        currentMatrixPayload = null;
+        
         const x = index % GRID_W;
         const y = Math.floor(index / GRID_W);
         const leds = document.querySelectorAll('.led');
@@ -275,8 +289,33 @@ document.addEventListener('DOMContentLoaded', () => {
         return data;
     }
 
+    // Helper to get grid as flat array of integers (0xRRGGBB)
+    function getGridDataAsFlatInts() {
+        const leds = document.querySelectorAll('.led');
+        const data = [];
+        
+        leds.forEach(led => {
+            let color = 0;
+            if (led.classList.contains('active')) {
+                const hex = led.style.backgroundColor;
+                // Convert rgb(r, g, b) or #hex to integer
+                if (hex.startsWith('rgb')) {
+                    const rgb = hex.match(/\d+/g);
+                    if (rgb) {
+                        color = (parseInt(rgb[0]) << 16) | (parseInt(rgb[1]) << 8) | parseInt(rgb[2]);
+                    }
+                } else if (hex.startsWith('#')) {
+                    color = parseInt(hex.slice(1), 16);
+                }
+            }
+            data.push(color);
+        });
+        return data;
+    }
+
     // Load data onto grid
     function loadGridData(data, width, height) {
+        currentMatrixPayload = null; // Clear any uploaded animation
         // Resize if needed
         if (width && height && (width !== GRID_W || height !== GRID_H)) {
             gridWidthInput.value = width;
@@ -337,6 +376,8 @@ document.addEventListener('DOMContentLoaded', () => {
     imageInput.addEventListener('change', (e) => {
         const file = e.target.files[0];
         if (!file) return;
+        
+        uploadMediaForBoard(file);
 
         const reader = new FileReader();
         reader.onload = (event) => {
@@ -384,6 +425,227 @@ document.addEventListener('DOMContentLoaded', () => {
         };
         reader.readAsDataURL(file);
     });
+
+    async function uploadMediaForBoard(file) {
+        const formData = new FormData();
+        formData.append('image', file);
+        
+        try {
+            const response = await fetch('api.php?action=upload_media', {
+                method: 'POST',
+                body: formData
+            });
+            const result = await response.json();
+            if (result.status === 'success') {
+                console.log('Media converted and saved for board use', result);
+                
+                // Store the full animation payload for sending to matrix
+                if (result.frames && result.frames.length > 0) {
+                    currentMatrixPayload = {
+                        width: result.width || GRID_W,
+                        height: result.height || GRID_H,
+                        frames: result.frames,
+                        frame_delay: result.frame_delay || 80
+                    };
+                    // Update matrix IP if not set (optional)
+                }
+                
+                alert('Image/GIF processed successfully! Click "Send to Matrix" to display it.');
+            } else if (result.status === 'error' && result.message === 'Unauthorized') {
+                console.warn('Login required to save media conversions');
+                alert('Please log in to save converted GIF/image code for the LED board.');
+            } else {
+                console.error('Error saving media conversion', result);
+                alert('There was an error converting your image/GIF for the LED board.\n\n' +
+                      'Details: ' + (result.message || 'Unknown error. ' +
+                      'Very large images or GIFs with many frames can fail. Try a smaller file.'));
+            }
+        } catch (err) {
+            console.error('Error uploading media for conversion', err);
+            alert('Could not contact the server to convert your image/GIF. Check that the server is running.');
+        }
+    }
+
+    function frameIntsToRGBBytes(frame, width, height) {
+        const total = width * height;
+        const arr = new Uint8Array(total * 3);
+        for (let i = 0; i < total; i++) {
+            const c = frame[i] || 0;
+            arr[i*3+0] = (c >> 16) & 0xFF;
+            arr[i*3+1] = (c >> 8) & 0xFF;
+            arr[i*3+2] = c & 0xFF;
+        }
+        return arr;
+    }
+
+    async function sendB64Frame(ip, width, height, rgbBytes, overlay=false) {
+        const b64 = btoa(String.fromCharCode.apply(null, rgbBytes));
+        const response = await fetch('api.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action: 'proxy_b64',
+                ip: ip,
+                width: width,
+                height: height,
+                data: b64,
+                overlay: overlay ? 1 : 0
+            })
+        });
+        return response.json();
+    }
+    
+    async function beginFrame(ip, width, height) {
+        const response = await fetch('api.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action: 'proxy_begin_frame',
+                ip: ip,
+                width: width,
+                height: height
+            })
+        });
+        return response.json();
+    }
+    
+    async function sendRowB64(ip, width, height, rowIndex, rowBytes) {
+        const b64 = btoa(String.fromCharCode.apply(null, rowBytes));
+        const response = await fetch('api.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action: 'proxy_b64_row',
+                ip: ip,
+                width: width,
+                height: height,
+                row: rowIndex,
+                data: b64
+            })
+        });
+        return response.json();
+    }
+    
+    async function sendRowsB64(ip, width, height, start, count, bytes) {
+        const b64 = btoa(String.fromCharCode.apply(null, bytes));
+        const response = await fetch('api.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action: 'proxy_b64_rows',
+                ip: ip,
+                width: width,
+                height: height,
+                start: start,
+                count: count,
+                data: b64
+            })
+        });
+        return response.json();
+    }
+    
+    async function endFrame(ip) {
+        const response = await fetch('api.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action: 'proxy_end_frame',
+                ip: ip
+            })
+        });
+        return response.json();
+    }
+    
+    async function sendFrameFullBase64(ip, width, height, rgbBytes, overlay=false) {
+        const r = await sendB64Frame(ip, width, height, rgbBytes, overlay);
+        return r;
+    }
+
+    async function checkMatrix(ip) {
+        const response = await fetch('api.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action: 'proxy_health',
+                ip: ip
+            })
+        });
+        return response.json();
+    }
+
+    async function sendCurrentToMatrix() {
+        if (!matrixIpInput) {
+            alert('Matrix IP input not found on this page.');
+            return;
+        }
+        const ip = matrixIpInput.value.trim();
+        if (!ip) {
+            alert('Please enter the Matrix IP address.');
+            return;
+        }
+        localStorage.setItem('matrixIp', ip);
+
+        let payload = currentMatrixPayload ? currentMatrixPayload : {
+            width: GRID_W,
+            height: GRID_H,
+            frames: [getGridDataAsFlatInts()],
+            frame_delay: 80
+        };
+
+        try {
+            const health = await checkMatrix(ip);
+            if (!health || health.status !== 'success') {
+                alert('Matrix not reachable. Check WiFi or IP.');
+                return;
+            }
+            const width = Math.min(payload.width || GRID_W, 64);
+            const height = Math.min(payload.height || GRID_H, 64);
+            const frames = payload.frames || [];
+            const delay = payload.frame_delay || 80;
+            const useFullFrame = (width * height <= 4096) && frames.length > 1;
+            for (let i = 0; i < frames.length; i++) {
+                const rgbBytes = frameIntsToRGBBytes(frames[i], width, height);
+                if (useFullFrame) {
+                    const resp = await sendFrameFullBase64(ip, width, height, rgbBytes, i > 0);
+                    if (!resp || resp.status !== 'success') {
+                        alert('Error sending frame: ' + (resp && resp.message ? resp.message : 'Unknown'));
+                        return;
+                    }
+                } else {
+                    const startResp = await beginFrame(ip, width, height);
+                    if (!startResp || startResp.status !== 'success') {
+                        alert('Error starting frame: ' + (startResp && startResp.message ? startResp.message : 'Unknown'));
+                        return;
+                    }
+                    const chunk = 8;
+                    for (let start = 0; start < height; start += chunk) {
+                        const count = Math.min(chunk, height - start);
+                        const base = start * width * 3;
+                        const len = count * width * 3;
+                        const bytes = rgbBytes.subarray(base, base + len);
+                        const r = await sendRowsB64(ip, width, height, start, count, bytes);
+                        if (!r || r.status !== 'success') {
+                            alert('Error sending rows ' + start + '-' + (start+count-1) + ': ' + (r && r.message ? r.message : 'Unknown'));
+                            return;
+                        }
+                    }
+                    const done = await endFrame(ip);
+                    if (!done || done.status !== 'success') {
+                        alert('Error finishing frame: ' + (done && done.message ? done.message : 'Unknown'));
+                        return;
+                    }
+                }
+                if (i < frames.length - 1) {
+                    await new Promise(res => setTimeout(res, delay));
+                }
+            }
+            alert('Sent to matrix successfully');
+        } catch (err) {
+            console.error('Error sending to matrix', err);
+            alert('Could not reach the server proxy.\n' +
+                  'Make sure the matrix is powered and connected to the same network.');
+        }
+    }
 
     // API Functions
     async function fetchDesigns(type = 'my') {
@@ -516,6 +778,9 @@ document.addEventListener('DOMContentLoaded', () => {
     clearBtn.addEventListener('click', clearGrid);
     saveBtn.addEventListener('click', saveDesign);
     resizeBtn.addEventListener('click', () => initGrid(gridWidthInput.value, gridHeightInput.value));
+    if (sendToMatrixBtn) {
+        sendToMatrixBtn.addEventListener('click', sendCurrentToMatrix);
+    }
     
     tabMy.addEventListener('click', () => fetchDesigns('my'));
     tabFav.addEventListener('click', () => fetchDesigns('favorites'));
