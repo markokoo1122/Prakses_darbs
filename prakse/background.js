@@ -15,7 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const cols = Math.ceil(window.innerWidth / spacing);
 
     const colors = [
-        '#990000ff', '#00ff00', '#0000ff', '#ffff00', '#00ffff', '#810c81ff', 
+        '#990000ff', '#00ff00', '#000000', '#000000', '#00ffff', '#810c81ff', 
         '#ff9900', '#9900ff', '#2f8d67ff', '#ff0099', '#ffffff'
     ];
 
@@ -26,9 +26,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const top = r * spacing;
             const left = c * spacing;
-            const size = 60;
-            const duration = Math.random() * 3 + 3;
-            const delay = Math.random() * 5;
+            const size = 25;
+            const duration = Math.random() * 0 + 3;
+            const delay = Math.random() * 90;
             const color = colors[Math.floor(Math.random() * colors.length)];
 
             light.style.top = `${top}px`;

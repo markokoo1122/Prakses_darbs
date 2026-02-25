@@ -403,7 +403,12 @@ def web_main():
     converter = LEDMatrixConverter(width=args.width, height=args.height)
     filepath = args.filepath
     effect = args.effect
-    is_gif = filepath.lower().endswith(".gif")
+    
+    try:
+        _im = Image.open(filepath)
+        is_gif = (getattr(_im, "is_animated", False) or getattr(_im, "n_frames", 1) > 1 or (getattr(_im, "format", "") or "").upper() == "GIF")
+    except Exception:
+        is_gif = filepath.lower().endswith(".gif")
     
     try:
         if is_gif:

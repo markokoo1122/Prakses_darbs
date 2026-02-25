@@ -397,8 +397,16 @@ if ($method === 'GET') {
     
     if (isset($data['action']) && $data['action'] === 'proxy_b64') {
         $targetIp = isset($data['ip']) ? $data['ip'] : '';
+        // Basic normalization
+        $targetIp = preg_replace('#^https?://#', '', $targetIp);
+        $targetIp = preg_replace('#/.*$#', '', $targetIp);
+        $targetIp = preg_replace('#:.*$#', '', $targetIp);
+        
         if (!$targetIp && file_exists($matrixIpFile)) {
             $t = trim(file_get_contents($matrixIpFile));
+            $t = preg_replace('#^https?://#', '', $t);
+            $t = preg_replace('#/.*$#', '', $t);
+            $t = preg_replace('#:.*$#', '', $t);
             if ($t) $targetIp = $t;
         }
         $b64 = isset($data['data']) ? $data['data'] : '';
@@ -416,13 +424,18 @@ if ($method === 'GET') {
             exit;
         }
         $url = "http://$targetIp/upload_b64?width=$width&height=$height" . ($overlay ? "&overlay=1" : "");
+        
+        // Log payload info
+        error_log("proxy_b64: ip=$targetIp, width=$width, height=$height, overlay=$overlay, data_len=" . strlen($b64));
+        
         $ch = curl_init($url);
         curl_setopt($ch, CURLOPT_POST, 1);
         curl_setopt($ch, CURLOPT_POSTFIELDS, $b64);
         curl_setopt($ch, CURLOPT_HTTPHEADER, [
             'Content-Type: text/plain',
             'Connection: close',
-            'Expect:'
+            'Expect:',
+            'Content-Length: ' . strlen($b64)
         ]);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
@@ -433,6 +446,8 @@ if ($method === 'GET') {
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $error = curl_error($ch);
         curl_close($ch);
+        
+        error_log("proxy_b64 result: ip=$targetIp, code=$httpCode, err=$error, resp=" . substr($response, 0, 100));
         if (($error || $httpCode >= 400) && $targetIp !== '192.168.4.1') {
             $url2 = "http://192.168.4.1/upload_b64?width=$width&height=$height" . ($overlay ? "&overlay=1" : "");
             $ch2 = curl_init($url2);

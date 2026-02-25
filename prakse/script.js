@@ -39,6 +39,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     let currentMatrixPayload = null; // Stores uploaded animation data
+    let isAnimating = false;
+    let animationId = 0; // Unique ID for current animation loop
+    let animationTimeout = null;
+    let isPreviewAnimating = false;
+    let previewTimeout = null;
 
     // Tool Event Listeners
     pencilBtn.addEventListener('click', () => setTool('pencil'));
@@ -144,6 +149,14 @@ document.addEventListener('DOMContentLoaded', () => {
     function applyTool(index) {
         // If user manually draws, clear the uploaded animation payload
         currentMatrixPayload = null;
+        // Also stop any running animation loop immediately
+        isAnimating = false;
+        animationId++; // Invalidate loops
+        if (animationTimeout) {
+            clearTimeout(animationTimeout);
+            animationTimeout = null;
+        }
+        stopPreviewAnimation();
         
         const x = index % GRID_W;
         const y = Math.floor(index / GRID_W);
@@ -427,6 +440,12 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     async function uploadMediaForBoard(file) {
+        // Clear any previous animation state/payload first
+        isAnimating = false;
+        animationId++; // Invalidate any running loops
+        currentMatrixPayload = null;
+        stopPreviewAnimation();
+        
         const formData = new FormData();
         formData.append('image', file);
         
@@ -447,7 +466,14 @@ document.addEventListener('DOMContentLoaded', () => {
                         frames: result.frames,
                         frame_delay: result.frame_delay || 80
                     };
-                    // Update matrix IP if not set (optional)
+                    // Auto-start preview
+                    if (result.frames.length > 1) {
+                        if (typeof startPreviewAnimation === 'function') {
+                             startPreviewAnimation(currentMatrixPayload);
+                        } else {
+                            console.warn('startPreviewAnimation not defined');
+                        }
+                    }
                 }
                 
                 alert('Image/GIF processed successfully! Click "Send to Matrix" to display it.');
@@ -463,6 +489,69 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (err) {
             console.error('Error uploading media for conversion', err);
             alert('Could not contact the server to convert your image/GIF. Check that the server is running.');
+        }
+    }
+    
+    function startPreviewAnimation(payload) {
+        stopPreviewAnimation();
+        const width = Math.min(payload.width || GRID_W, 64);
+        const height = Math.min(payload.height || GRID_H, 64);
+        const frames = payload.frames || [];
+        const delay = payload.frame_delay || 80;
+        if (!frames.length) return;
+        
+        isPreviewAnimating = true;
+        let idx = 0;
+        
+        const tick = () => {
+            if (!isPreviewAnimating) return;
+            // Draw frame to grid
+            drawFrameOnGrid(frames[idx], width, height);
+            idx = (idx + 1) % frames.length;
+            previewTimeout = setTimeout(tick, delay);
+        };
+        tick();
+    }
+    
+    function stopPreviewAnimation() {
+        isPreviewAnimating = false;
+        if (previewTimeout) {
+            clearTimeout(previewTimeout);
+            previewTimeout = null;
+        }
+    }
+    
+    function drawFrameOnGrid(frameInts, width, height) {
+        // If grid size mismatch, re-init (optional, but good for safety)
+        if (width !== GRID_W || height !== GRID_H) {
+            initGrid(width, height);
+        }
+        
+        const leds = document.querySelectorAll('.led');
+        for (let i = 0; i < leds.length; i++) {
+            if (i >= frameInts.length) break;
+            const colorInt = frameInts[i];
+            const led = leds[i];
+            
+            if (colorInt === 0) {
+                led.classList.remove('active');
+                led.style.backgroundColor = '#222';
+                led.style.boxShadow = '';
+            } else {
+                // int to hex
+                const r = (colorInt >> 16) & 0xFF;
+                const g = (colorInt >> 8) & 0xFF;
+                const b = colorInt & 0xFF;
+                const hex = "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+                
+                led.classList.add('active');
+                led.style.backgroundColor = hex;
+                if (GRID_W > 32) {
+                    led.style.boxShadow = `0 0 1px ${hex}`;
+                } else {
+                    led.style.boxShadow = `0 0 4px ${hex}`;
+                }
+            }
         }
     }
 
@@ -602,44 +691,67 @@ document.addEventListener('DOMContentLoaded', () => {
             const height = Math.min(payload.height || GRID_H, 64);
             const frames = payload.frames || [];
             const delay = payload.frame_delay || 80;
-            const useFullFrame = (width * height <= 4096) && frames.length > 1;
-            for (let i = 0; i < frames.length; i++) {
-                const rgbBytes = frameIntsToRGBBytes(frames[i], width, height);
-                if (useFullFrame) {
-                    const resp = await sendFrameFullBase64(ip, width, height, rgbBytes, i > 0);
-                    if (!resp || resp.status !== 'success') {
-                        alert('Error sending frame: ' + (resp && resp.message ? resp.message : 'Unknown'));
-                        return;
-                    }
-                } else {
-                    const startResp = await beginFrame(ip, width, height);
-                    if (!startResp || startResp.status !== 'success') {
-                        alert('Error starting frame: ' + (startResp && startResp.message ? startResp.message : 'Unknown'));
-                        return;
-                    }
-                    const chunk = 8;
-                    for (let start = 0; start < height; start += chunk) {
-                        const count = Math.min(chunk, height - start);
-                        const base = start * width * 3;
-                        const len = count * width * 3;
-                        const bytes = rgbBytes.subarray(base, base + len);
-                        const r = await sendRowsB64(ip, width, height, start, count, bytes);
-                        if (!r || r.status !== 'success') {
-                            alert('Error sending rows ' + start + '-' + (start+count-1) + ': ' + (r && r.message ? r.message : 'Unknown'));
-                            return;
+            // Force chunked mode for all transmissions to avoid large body issues on ESP32
+            const useFullFrame = false; 
+            
+            // Animation loop function
+            const animate = async () => {
+                if (!isAnimating) return; // Stop if flag cleared
+                
+                for (let i = 0; i < frames.length; i++) {
+                    if (!isAnimating) break; // Check flag inside loop
+                    
+                    const rgbBytes = frameIntsToRGBBytes(frames[i], width, height);
+                    if (useFullFrame) {
+                        const resp = await sendFrameFullBase64(ip, width, height, rgbBytes, i > 0);
+                        // Ignore error on first frame if overlay is problematic, or just log
+                        if (!resp || (resp.status !== 'success' && resp.status !== 'ok')) {
+                            console.warn('Frame ' + i + ' warning:', resp);
+                            // Continue anyway to see if next frames work
+                        }
+                    } else {
+                        // Manual chunking
+                        const startResp = await beginFrame(ip, width, height);
+                        if (!startResp || startResp.status !== 'success') {
+                            console.warn('Error starting frame: ' + (startResp && startResp.message ? startResp.message : 'Unknown'));
+                            // If begin fails, maybe skip this frame or retry?
+                            // For now, continue to next frame to keep loop alive
+                        } else {
+                            const chunk = 8;
+                            for (let start = 0; start < height; start += chunk) {
+                                const count = Math.min(chunk, height - start);
+                                const base = start * width * 3;
+                                const len = count * width * 3;
+                                const bytes = rgbBytes.subarray(base, base + len);
+                                const r = await sendRowsB64(ip, width, height, start, count, bytes);
+                                if (!r || r.status !== 'success') {
+                                    console.warn('Error sending rows ' + start + '-' + (start+count-1) + ': ' + (r && r.message ? r.message : 'Unknown'));
+                                    // Try to continue
+                                }
+                            }
+                            const done = await endFrame(ip);
+                            if (!done || done.status !== 'success') {
+                                console.warn('Error finishing frame: ' + (done && done.message ? done.message : 'Unknown'));
+                            }
                         }
                     }
-                    const done = await endFrame(ip);
-                    if (!done || done.status !== 'success') {
-                        alert('Error finishing frame: ' + (done && done.message ? done.message : 'Unknown'));
-                        return;
+                    
+                    if (isAnimating) {
+                        await new Promise(res => setTimeout(res, delay));
                     }
                 }
-                if (i < frames.length - 1) {
-                    await new Promise(res => setTimeout(res, delay));
+                
+                // Recursively call animate if still enabled
+                if (isAnimating) {
+                    animate();
                 }
-            }
-            alert('Sent to matrix successfully');
+            };
+            
+            // Start the loop
+            isAnimating = true;
+            animate();
+            
+            alert('Animation started on matrix! (Looping)');
         } catch (err) {
             console.error('Error sending to matrix', err);
             alert('Could not reach the server proxy.\n' +

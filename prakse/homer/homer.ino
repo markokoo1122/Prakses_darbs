@@ -174,7 +174,14 @@ void setup() {
     });
     
     server.on("/upload_b64", HTTP_POST, []() {
+        if (!server.hasArg("plain")) {
+            Serial.println("/upload_b64: No plain arg found (likely body too large/chunked)");
+            server.send(400, "text/plain", "EMPTY");
+            return;
+        }
         String body = server.arg("plain");
+        Serial.printf("/upload_b64: body len=%d\n", body.length());
+        
         int w = 0, h = 0;
         if (server.hasArg("width")) w = server.arg("width").toInt();
         if (server.hasArg("height")) h = server.arg("height").toInt();
@@ -185,9 +192,19 @@ void setup() {
         }
         if (w <= 0) w = PANEL_RES_X;
         if (h <= 0) h = PANEL_RES_Y;
+        
+        // Handle chunked/streamed data if needed, or increase limit
+        // By default ESP32 WebServer handles ~2-4KB args well, but 12KB might be truncated or dropped if not buffered
+        
         uint8_t* raw = nullptr; int rawLen = 0;
         bool ok = decodeB64(body, raw, rawLen);
-        if (!ok || rawLen <= 0) { server.send(400, "text/plain", "BAD"); return; }
+        
+        // Detailed failure log
+        if (!ok || rawLen <= 0) { 
+            Serial.printf("/upload_b64: decode fail. ok=%d, rawLen=%d\n", ok, rawLen);
+            server.send(400, "text/plain", "BAD"); 
+            return; 
+        }
         frameW = w; frameH = h;
         int maxBytes = w*h*3;
         int toCopy = rawLen < maxBytes ? rawLen : maxBytes;

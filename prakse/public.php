@@ -107,21 +107,10 @@
             background: #1976D2;
         }
         
-        /* Specific override requested by user:
-           "backround is not like showing a few square ligts like shining"
-           We ensure the canvas background is pure black and only lit pixels show.
-        */
+
     </style>
 </head>
 <body>
-    <!-- Background Animation -->
-    <div class="bg-animation">
-        <div class="bg-square" style="top: 10%; left: 10%; width: 100px; height: 100px; animation-duration: 8s;"></div>
-        <div class="bg-square" style="top: 70%; left: 80%; width: 150px; height: 150px; animation-duration: 12s;"></div>
-        <div class="bg-square" style="top: 40%; left: 40%; width: 80px; height: 80px; animation-duration: 6s;"></div>
-        <div class="bg-square" style="top: 20%; left: 60%; width: 120px; height: 120px; animation-duration: 15s;"></div>
-        <div class="bg-square" style="top: 80%; left: 20%; width: 60px; height: 60px; animation-duration: 9s;"></div>
-    </div>
 
     <nav>
         <a href="index.php" class="logo">LED Matrix</a>
@@ -138,10 +127,6 @@
             <p>Explore designs created by the community</p>
         </div>
 
-        <div style="margin-bottom: 20px; display:flex; gap:10px; align-items:center;">
-            <input type="text" id="galleryMatrixIp" placeholder="Matrix IP (e.g. 192.168.0.50)" style="flex:1; padding:8px; background:#111; border:1px solid #333; color:#fff; border-radius:5px;">
-            <button onclick="saveGalleryMatrixIp()" class="open-btn" style="flex:0 0 auto;">Save IP</button>
-        </div>
 
         <div id="gallery" class="gallery-container">
             <!-- Designs will be loaded here -->
