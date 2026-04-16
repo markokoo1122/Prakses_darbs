@@ -47,6 +47,28 @@ if ($method === 'GET') {
         $sql = "SELECT d.* FROM designs d 
                 JOIN favorites f ON d.id = f.design_id 
                 WHERE f.user_id = $userId ORDER BY f.created_at DESC";
+    } elseif ($type === 'mygifs') {
+        if (!isLoggedIn()) {
+            http_response_code(401);
+            echo json_encode(['status' => 'error', 'message' => 'Unauthorized']);
+            exit;
+        }
+        $result = $conn->query("SELECT id, original_filename, is_gif, width, height, frame_count, frame_delay, file_path, is_public, created_at
+                                FROM media_conversions WHERE user_id = $userId ORDER BY created_at DESC");
+        $items = [];
+        if ($result) while ($row = $result->fetch_assoc()) $items[] = $row;
+        echo json_encode($items);
+        exit;
+    } elseif ($type === 'publicgifs') {
+        $result = $conn->query("SELECT mc.id, mc.original_filename, mc.is_gif, mc.width, mc.height, mc.frame_count, mc.frame_delay, mc.file_path, mc.is_public, mc.created_at, u.username
+                                FROM media_conversions mc
+                                LEFT JOIN users u ON mc.user_id = u.id
+                                WHERE mc.is_public = 1 AND mc.file_path IS NOT NULL AND mc.file_path != ''
+                                ORDER BY mc.created_at DESC LIMIT 50");
+        $items = [];
+        if ($result) while ($row = $result->fetch_assoc()) $items[] = $row;
+        echo json_encode($items);
+        exit;
     } else {
         // Public designs
         $sql = "SELECT * FROM designs WHERE is_public = 1 ORDER BY created_at DESC";
@@ -72,7 +94,7 @@ if ($method === 'GET') {
     } elseif (isset($_GET['action'])) {
         $action = $_GET['action'];
     }
-    if (!isLoggedIn() && !in_array($action, ['proxy_health','proxy_binary','proxy_to_matrix','save_matrix_ip'])) {
+    if (!isLoggedIn() && !in_array($action, ['proxy_health','proxy_binary','proxy_to_matrix','save_matrix_ip','proxy_b64','proxy_begin_frame','proxy_b64_row','proxy_b64_rows','proxy_end_frame','proxy_anim_init','proxy_anim_play','proxy_anim_stop','proxy_clock_on','proxy_clock_off'])) {
         http_response_code(401);
         echo json_encode(['status' => 'error', 'message' => 'Unauthorized']);
         exit;
@@ -140,64 +162,70 @@ if ($method === 'GET') {
             echo json_encode(['status' => 'error', 'message' => 'No image uploaded']);
             exit;
         }
-        
+
         $tmpPath = $_FILES['image']['tmp_name'];
         $originalName = basename($_FILES['image']['name']);
         $originalNameEscaped = $conn->real_escape_string($originalName);
-        
+
+        // Save original file to uploads/ for library re-use
+        $uploadsDir = __DIR__ . '/uploads/';
+        if (!is_dir($uploadsDir)) mkdir($uploadsDir, 0755, true);
+        $ext = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
+        $allowedExts = ['gif', 'png', 'jpg', 'jpeg', 'bmp', 'webp'];
+        $savedFilePath = null;
+        if (in_array($ext, $allowedExts)) {
+            $safeFilename = $userId . '_' . time() . '_' . preg_replace('/[^a-zA-Z0-9._-]/', '_', $originalName);
+            $destPath = $uploadsDir . $safeFilename;
+            if (move_uploaded_file($tmpPath, $destPath)) {
+                $savedFilePath = 'uploads/' . $safeFilename;
+                $tmpPath = $destPath; // use saved file for conversion
+            }
+        }
+
         $scriptPath = realpath(__DIR__ . '/../image_to_led_converter.py');
         if (!$scriptPath || !file_exists($scriptPath)) {
             http_response_code(500);
             echo json_encode(['status' => 'error', 'message' => 'Converter script not found']);
             exit;
         }
-        
+
         $python = 'python';
         $cmd = escapeshellcmd($python) . ' ' . escapeshellarg($scriptPath) . ' --web ' . escapeshellarg($tmpPath) . ' --width 64 --height 64';
         if (isset($_POST['effect']) && $_POST['effect'] !== '') {
             $cmd .= ' --effect ' . escapeshellarg($_POST['effect']);
         }
-        
+
         $output = [];
         $returnVar = 0;
         exec($cmd . ' 2>&1', $output, $returnVar);
         $outputStr = implode("\n", $output);
-        
+
         $data = json_decode($outputStr, true);
         if (!$data || !isset($data['status'])) {
             http_response_code(500);
             echo json_encode(['status' => 'error', 'message' => 'Failed to parse converter output', 'raw' => $outputStr]);
             exit;
         }
-        
+
         if ($data['status'] !== 'ok') {
             http_response_code(500);
             echo json_encode(['status' => 'error', 'message' => isset($data['message']) ? $data['message'] : 'Conversion failed']);
             exit;
         }
-        
+
         $isGif = !empty($data['is_gif']) ? 1 : 0;
         $width = isset($data['width']) ? intval($data['width']) : 64;
         $height = isset($data['height']) ? intval($data['height']) : 64;
         $frameCount = isset($data['frame_count']) ? intval($data['frame_count']) : 1;
         $frameDelay = isset($data['frame_delay']) && $data['frame_delay'] !== null ? intval($data['frame_delay']) : null;
-        $code = isset($data['arduino_code']) ? $data['arduino_code'] : '';
-        $codeEscaped = $conn->real_escape_string($code);
-        
-        if ($frameDelay === null) {
-            $frameDelaySql = "NULL";
-        } else {
-            $frameDelaySql = intval($frameDelay);
-        }
-        
-        $sql = "INSERT INTO media_conversions (user_id, original_filename, is_gif, width, height, frame_count, frame_delay, arduino_code) 
-                VALUES ($userId, '$originalNameEscaped', $isGif, $width, $height, $frameCount, $frameDelaySql, '$codeEscaped')";
-        
+        $frameDelaySql = $frameDelay === null ? "NULL" : intval($frameDelay);
+        $filePathEscaped = $savedFilePath ? $conn->real_escape_string($savedFilePath) : '';
+
+        $sql = "INSERT INTO media_conversions (user_id, original_filename, is_gif, width, height, frame_count, frame_delay, file_path)
+                VALUES ($userId, '$originalNameEscaped', $isGif, $width, $height, $frameCount, $frameDelaySql, '$filePathEscaped')";
+
         if ($conn->query($sql) === TRUE) {
             $framesData = isset($data['frames']) ? $data['frames'] : [];
-            // Log frame info for debugging
-            error_log("upload_media: width=$width, height=$height, frameCount=" . count($framesData) . ", frameDelay=$frameDelay");
-            
             echo json_encode([
                 'status' => 'success',
                 'conversion_id' => $conn->insert_id,
@@ -215,6 +243,63 @@ if ($method === 'GET') {
     }
     
     // $data and $matrixIpFile already initialized above
+
+    // Toggle public/private for a saved media item
+    if (isset($data['action']) && $data['action'] === 'toggle_media_public') {
+        $mediaId = intval($data['id'] ?? 0);
+        if ($mediaId <= 0) { http_response_code(400); echo json_encode(['status'=>'error','message'=>'Missing id']); exit; }
+        $row = $conn->query("SELECT id, is_public FROM media_conversions WHERE id=$mediaId AND user_id=$userId")->fetch_assoc();
+        if (!$row) { http_response_code(404); echo json_encode(['status'=>'error','message'=>'Not found']); exit; }
+        $newPublic = $row['is_public'] ? 0 : 1;
+        $conn->query("UPDATE media_conversions SET is_public=$newPublic WHERE id=$mediaId");
+        echo json_encode(['status'=>'success','is_public'=>$newPublic]);
+        exit;
+    }
+
+    // Load a saved media file, re-convert and return frame data
+    if (isset($data['action']) && $data['action'] === 'load_media') {
+        $mediaId = intval($data['id'] ?? 0);
+        if ($mediaId <= 0) { http_response_code(400); echo json_encode(['status'=>'error','message'=>'Missing id']); exit; }
+        $row = $conn->query("SELECT * FROM media_conversions WHERE id=$mediaId AND (user_id=$userId OR is_public=1)")->fetch_assoc();
+        if (!$row) { http_response_code(404); echo json_encode(['status'=>'error','message'=>'Not found']); exit; }
+        if (!$row['file_path']) { http_response_code(404); echo json_encode(['status'=>'error','message'=>'No file stored']); exit; }
+        $filePath = __DIR__ . '/' . $row['file_path'];
+        if (!file_exists($filePath)) { http_response_code(404); echo json_encode(['status'=>'error','message'=>'File missing from server']); exit; }
+        $scriptPath = realpath(__DIR__ . '/../image_to_led_converter.py');
+        $cmd = escapeshellcmd('python') . ' ' . escapeshellarg($scriptPath) . ' --web ' . escapeshellarg($filePath) . ' --width 64 --height 64';
+        $out = []; exec($cmd . ' 2>&1', $out);
+        $conv = json_decode(implode("\n", $out), true);
+        if (!$conv || ($conv['status'] ?? '') !== 'ok') {
+            http_response_code(500);
+            echo json_encode(['status'=>'error','message'=>$conv['message'] ?? 'Conversion failed']);
+            exit;
+        }
+        echo json_encode([
+            'status' => 'success',
+            'is_gif' => $row['is_gif'],
+            'original_filename' => $row['original_filename'],
+            'width' => $conv['width'],
+            'height' => $conv['height'],
+            'frame_delay' => $conv['frame_delay'],
+            'frames' => $conv['frames']
+        ]);
+        exit;
+    }
+
+    // Delete a saved media file
+    if (isset($data['action']) && $data['action'] === 'delete_media') {
+        $mediaId = intval($data['id'] ?? 0);
+        if ($mediaId <= 0) { http_response_code(400); echo json_encode(['status'=>'error','message'=>'Missing id']); exit; }
+        $row = $conn->query("SELECT * FROM media_conversions WHERE id=$mediaId AND user_id=$userId")->fetch_assoc();
+        if (!$row) { http_response_code(404); echo json_encode(['status'=>'error','message'=>'Not found']); exit; }
+        if ($row['file_path']) {
+            $filePath = __DIR__ . '/' . $row['file_path'];
+            if (file_exists($filePath)) unlink($filePath);
+        }
+        $conn->query("DELETE FROM media_conversions WHERE id=$mediaId");
+        echo json_encode(['status'=>'success']);
+        exit;
+    }
 
     // Save matrix IP from editor UI
     if (isset($data['action']) && $data['action'] === 'save_matrix_ip') {
@@ -491,12 +576,14 @@ if ($method === 'GET') {
         }
         $width = isset($data['width']) ? intval($data['width']) : 64;
         $height = isset($data['height']) ? intval($data['height']) : 64;
+        $bufIndex = isset($data['buf_index']) ? intval($data['buf_index']) : -1;
+        $bufParam = $bufIndex >= 0 ? "&buf=$bufIndex" : "";
         if (!filter_var($targetIp, FILTER_VALIDATE_IP)) {
             http_response_code(400);
             echo json_encode(['status' => 'error', 'message' => 'Invalid IP address']);
             exit;
         }
-        $url = "http://$targetIp/begin_frame?width=$width&height=$height";
+        $url = "http://$targetIp/begin_frame?width=$width&height=$height$bufParam";
         $ch = curl_init($url);
         curl_setopt($ch, CURLOPT_POST, 1);
         curl_setopt($ch, CURLOPT_POSTFIELDS, '');
@@ -515,7 +602,7 @@ if ($method === 'GET') {
         $error = curl_error($ch);
         curl_close($ch);
         if (($error || $httpCode >= 400) && $targetIp !== '192.168.4.1') {
-            $url2 = "http://192.168.4.1/begin_frame?width=$width&height=$height";
+            $url2 = "http://192.168.4.1/begin_frame?width=$width&height=$height$bufParam";
             $ch2 = curl_init($url2);
             curl_setopt($ch2, CURLOPT_POST, 1);
             curl_setopt($ch2, CURLOPT_POSTFIELDS, '');
@@ -702,12 +789,14 @@ if ($method === 'GET') {
             $t = trim(file_get_contents($matrixIpFile));
             if ($t) $targetIp = $t;
         }
+        $bufIndex2 = isset($data['buf_index']) ? intval($data['buf_index']) : -1;
+        $bufParam2 = $bufIndex2 >= 0 ? "?buf=$bufIndex2" : "";
         if (!filter_var($targetIp, FILTER_VALIDATE_IP)) {
             http_response_code(400);
             echo json_encode(['status' => 'error', 'message' => 'Invalid IP address']);
             exit;
         }
-        $url = "http://$targetIp/end_frame";
+        $url = "http://$targetIp/end_frame$bufParam2";
         $ch = curl_init($url);
         curl_setopt($ch, CURLOPT_POST, 1);
         curl_setopt($ch, CURLOPT_POSTFIELDS, '');
@@ -726,7 +815,7 @@ if ($method === 'GET') {
         $error = curl_error($ch);
         curl_close($ch);
         if (($error || $httpCode >= 400) && $targetIp !== '192.168.4.1') {
-            $url2 = "http://192.168.4.1/end_frame";
+            $url2 = "http://192.168.4.1/end_frame$bufParam2";
             $ch2 = curl_init($url2);
             curl_setopt($ch2, CURLOPT_POST, 1);
             curl_setopt($ch2, CURLOPT_POSTFIELDS, '');
@@ -760,6 +849,108 @@ if ($method === 'GET') {
         exit;
     }
     
+    // ── Simple helper: POST with no body to an ESP32 endpoint ─────────────────
+    $proxySimple = function($targetIp, $endpoint) {
+        $ch = curl_init("http://$targetIp$endpoint");
+        curl_setopt($ch, CURLOPT_POST, 1);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, '');
+        curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: text/plain', 'Connection: close', 'Expect:']);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 15);
+        curl_setopt($ch, CURLOPT_FORBID_REUSE, true);
+        curl_setopt($ch, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
+        $resp = curl_exec($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $err  = curl_error($ch);
+        curl_close($ch);
+        return [$err, $code, $resp];
+    };
+
+    if (isset($data['action']) && $data['action'] === 'proxy_anim_init') {
+        $targetIp = isset($data['ip']) ? $data['ip'] : '';
+        if (!$targetIp && file_exists($matrixIpFile)) { $t = trim(file_get_contents($matrixIpFile)); if ($t) $targetIp = $t; }
+        $count = isset($data['count']) ? intval($data['count']) : 0;
+        if (!filter_var($targetIp, FILTER_VALIDATE_IP) || $count <= 0) {
+            http_response_code(400); echo json_encode(['status'=>'error','message'=>'Invalid IP or count']); exit;
+        }
+        [$err, $code, $resp] = $proxySimple($targetIp, "/anim_init?count=$count");
+        if (($err || $code >= 400) && $targetIp !== '192.168.4.1') {
+            [$err, $code, $resp] = $proxySimple('192.168.4.1', "/anim_init?count=$count");
+        }
+        echo json_encode(['status' => (!$err && $code >= 200 && $code < 300) ? 'success' : 'error', 'response' => $resp]);
+        exit;
+    }
+
+    if (isset($data['action']) && $data['action'] === 'proxy_anim_play') {
+        $targetIp = isset($data['ip']) ? $data['ip'] : '';
+        if (!$targetIp && file_exists($matrixIpFile)) { $t = trim(file_get_contents($matrixIpFile)); if ($t) $targetIp = $t; }
+        $count = isset($data['count']) ? intval($data['count']) : 0;
+        $delay = isset($data['delay']) ? intval($data['delay']) : 80;
+        if (!filter_var($targetIp, FILTER_VALIDATE_IP) || $count <= 0) {
+            http_response_code(400); echo json_encode(['status'=>'error','message'=>'Invalid IP or count']); exit;
+        }
+        [$err, $code, $resp] = $proxySimple($targetIp, "/anim_play?count=$count&delay=$delay");
+        if (($err || $code >= 400) && $targetIp !== '192.168.4.1') {
+            [$err, $code, $resp] = $proxySimple('192.168.4.1', "/anim_play?count=$count&delay=$delay");
+        }
+        echo json_encode(['status' => (!$err && $code >= 200 && $code < 300) ? 'success' : 'error', 'response' => $resp]);
+        exit;
+    }
+
+    if (isset($data['action']) && $data['action'] === 'proxy_anim_stop') {
+        $targetIp = isset($data['ip']) ? $data['ip'] : '';
+        if (!$targetIp && file_exists($matrixIpFile)) { $t = trim(file_get_contents($matrixIpFile)); if ($t) $targetIp = $t; }
+        if (!filter_var($targetIp, FILTER_VALIDATE_IP)) {
+            http_response_code(400); echo json_encode(['status'=>'error','message'=>'Invalid IP']); exit;
+        }
+        [$err, $code, $resp] = $proxySimple($targetIp, "/anim_stop");
+        if (($err || $code >= 400) && $targetIp !== '192.168.4.1') {
+            [$err, $code, $resp] = $proxySimple('192.168.4.1', "/anim_stop");
+        }
+        echo json_encode(['status' => (!$err && $code >= 200 && $code < 300) ? 'success' : 'error', 'response' => $resp]);
+        exit;
+    }
+
+    if (isset($data['action']) && $data['action'] === 'proxy_clock_on') {
+        $targetIp = isset($data['ip']) ? $data['ip'] : '';
+        if (!$targetIp && file_exists($matrixIpFile)) { $t = trim(file_get_contents($matrixIpFile)); if ($t) $targetIp = $t; }
+        $tz      = isset($data['tz'])      ? intval($data['tz'])      : 2;
+        $style   = isset($data['style'])   ? intval($data['style'])   : 0;
+        $overlay = isset($data['overlay']) ? intval($data['overlay']) : 0;
+        $dr = isset($data['dr']) ? intval($data['dr']) : -1;
+        $dg = isset($data['dg']) ? intval($data['dg']) : -1;
+        $db = isset($data['db']) ? intval($data['db']) : -1;
+        $br = isset($data['br']) ? intval($data['br']) : -1;
+        $bg = isset($data['bg']) ? intval($data['bg']) : -1;
+        $bb = isset($data['bb']) ? intval($data['bb']) : -1;
+        if (!filter_var($targetIp, FILTER_VALIDATE_IP)) {
+            http_response_code(400); echo json_encode(['status'=>'error','message'=>'Invalid IP']); exit;
+        }
+        $qry = "/clock_on?tz=$tz&style=$style&overlay=$overlay";
+        if ($dr >= 0) $qry .= "&dr=$dr&dg=$dg&db=$db&br=$br&bg=$bg&bb=$bb";
+        [$err, $code, $resp] = $proxySimple($targetIp, $qry);
+        if (($err || $code >= 400) && $targetIp !== '192.168.4.1') {
+            [$err, $code, $resp] = $proxySimple('192.168.4.1', $qry);
+        }
+        echo json_encode(['status' => (!$err && $code >= 200 && $code < 300) ? 'success' : 'error', 'response' => $resp]);
+        exit;
+    }
+
+    if (isset($data['action']) && $data['action'] === 'proxy_clock_off') {
+        $targetIp = isset($data['ip']) ? $data['ip'] : '';
+        if (!$targetIp && file_exists($matrixIpFile)) { $t = trim(file_get_contents($matrixIpFile)); if ($t) $targetIp = $t; }
+        if (!filter_var($targetIp, FILTER_VALIDATE_IP)) {
+            http_response_code(400); echo json_encode(['status'=>'error','message'=>'Invalid IP']); exit;
+        }
+        [$err, $code, $resp] = $proxySimple($targetIp, "/clock_off");
+        if (($err || $code >= 400) && $targetIp !== '192.168.4.1') {
+            [$err, $code, $resp] = $proxySimple('192.168.4.1', "/clock_off");
+        }
+        echo json_encode(['status' => (!$err && $code >= 200 && $code < 300) ? 'success' : 'error', 'response' => $resp]);
+        exit;
+    }
+
     if (isset($data['name']) && isset($data['grid_data'])) {
         $name = $conn->real_escape_string($data['name']);
         $gridData = json_encode($data['grid_data']); 

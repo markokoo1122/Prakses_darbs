@@ -5,25 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LED Matrix Project</title>
     <link rel="stylesheet" href="style.css">
-    <style>
-        .detail-card {
-    background-color: black;
-    padding: 20px;
-    border-radius: 10px;
-    border: 1px solid #333;
-}
-    </style>
 </head>
 <body>
-    <!-- Background Animation -->
-    <div class="bg-animation">
-        <div class="bg-square" style="top: 10%; left: 10%; width: 100px; height: 100px; animation-duration: 8s;"></div>
-        <div class="bg-square" style="top: 70%; left: 80%; width: 150px; height: 150px; animation-duration: 12s;"></div>
-        <div class="bg-square" style="top: 40%; left: 40%; width: 80px; height: 80px; animation-duration: 6s;"></div>
-        <div class="bg-square" style="top: 20%; left: 60%; width: 120px; height: 120px; animation-duration: 15s;"></div>
-        <div class="bg-square" style="top: 80%; left: 20%; width: 60px; height: 60px; animation-duration: 9s;"></div>
-    </div>
-
     <nav>
         <a href="index.php" class="logo">LED Matrix</a>
         <ul>

@@ -6,108 +6,66 @@
     <title>Public Gallery - LED Matrix</title>
     <link rel="stylesheet" href="style.css">
     <style>
-        .gallery-container {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-            gap: 40px;
-            padding: 40px;
-        }
-
-        .design-card {
-            background: #1a1a1a;
-            border-radius: 10px;
-            overflow: hidden;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
-            transition: transform 0.3s, box-shadow 0.3s;
-            border: 1px solid #333;
+        .gallery-tabs {
             display: flex;
-            flex-direction: column;
-            position: relative;
+            gap: 6px;
+            margin-bottom: 24px;
         }
-
-        .design-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 8px 25px rgba(0,0,0,0.7);
-            border-color: #2196F3;
-        }
-
-        .size-badge {
-            position: absolute;
-            top: 10px;
-            right: 10px;
-            background: rgba(0, 0, 0, 0.7);
-            color: #2196F3;
-            padding: 5px 10px;
-            border-radius: 5px;
+        .gallery-tab {
+            background: transparent;
+            border: 1px solid #1e1e1e;
+            color: #444;
+            padding: 8px 24px;
+            border-radius: 4px;
+            cursor: pointer;
             font-size: 0.85em;
-            font-weight: bold;
-            border: 1px solid #2196F3;
-            z-index: 10;
+            letter-spacing: 0.05em;
+            transition: border-color 0.15s, color 0.15s;
         }
-
-        .preview-container {
-            width: 100%;
-            height: 300px;
+        .gallery-tab:hover {
+            border-color: #333;
+            color: #777;
+        }
+        .gallery-tab.tab-active {
+            border-color: #444;
+            color: #ccc;
+        }
+        .gif-gallery-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 1px;
+        }
+        /* In the public gallery, match the 260px preview height of design cards */
+        .gif-gallery-grid .gif-thumb-wrap {
+            height: 260px;
+            aspect-ratio: unset;
+        }
+        .gif-gallery-grid .gif-card {
             background: #000;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            padding: 20px;
-            box-sizing: border-box;
-            border-bottom: 1px solid #333;
+            border: none;
+            border-radius: 0;
         }
-
-        canvas {
-            width: 100%;
-            height: 100%;
-            object-fit: contain;
-            image-rendering: pixelated; /* Keeps pixels sharp */
+        .gif-gallery-grid .gif-card:hover {
+            background: #030303;
+            border-color: transparent;
         }
-
-        .card-info {
-            padding: 15px;
-            flex-grow: 1;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
+        .gif-gallery-grid .gif-card-info {
+            padding: 14px 16px;
         }
-
-        .card-title {
-            font-size: 1.2em;
-            margin: 0 0 5px 0;
-            color: #fff;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-
-        .card-meta {
+        .gif-gallery-grid .gif-card-name {
             font-size: 0.9em;
             color: #888;
-            margin-bottom: 15px;
         }
-
-        .card-actions {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
+        .gif-gallery-grid .gif-card-meta {
+            font-size: 0.8em;
+            color: #444;
+            margin-top: 3px;
         }
-
-        .open-btn {
-            background: #2196F3;
-            color: white;
-            padding: 8px 15px;
-            border-radius: 5px;
-            text-decoration: none;
-            font-size: 0.9em;
-            transition: background 0.2s;
+        .gif-gallery-grid .gif-card-by {
+            font-size: 0.75em;
+            color: #333;
+            margin-top: 2px;
         }
-
-        .open-btn:hover {
-            background: #1976D2;
-        }
-        
-
     </style>
 </head>
 <body>
@@ -115,22 +73,35 @@
     <nav>
         <a href="index.php" class="logo">LED Matrix</a>
         <ul>
-            <li><a href="public.php" style="color: #2196F3;">Gallery</a></li>
+            <li><a href="public.php" class="active">Gallery</a></li>
             <li><a href="editor.php">Editor</a></li>
             <li id="authLink"><a href="login.php" class="btn-nav">Login</a></li>
         </ul>
     </nav>
 
     <div class="container">
-        <div class="hero" style="padding: 20px 0;">
+        <div class="hero" style="padding: 20px 0 16px;">
             <h1>Public Gallery</h1>
             <p>Explore designs created by the community</p>
         </div>
 
+        <div class="gallery-tabs">
+            <button class="gallery-tab tab-active" id="tabDesigns" onclick="showTab('designs')">Designs</button>
+            <button class="gallery-tab" id="tabGifs" onclick="showTab('gifs')">GIFs</button>
+        </div>
 
-        <div id="gallery" class="gallery-container">
-            <!-- Designs will be loaded here -->
-            <div style="color: #888; grid-column: 1/-1; text-align: center;">Loading designs...</div>
+        <!-- Designs tab -->
+        <div id="panelDesigns">
+            <div id="gallery" class="gallery-container">
+                <div style="color: #888; grid-column: 1/-1; text-align: center;">Loading designs...</div>
+            </div>
+        </div>
+
+        <!-- GIFs tab -->
+        <div id="panelGifs" style="display:none;">
+            <div id="gifGallery" class="gif-gallery-grid">
+                <div style="color: #888;">Loading GIFs...</div>
+            </div>
         </div>
     </div>
 
@@ -141,8 +112,8 @@
             .then(res => res.json())
             .then(data => {
                 if (data.logged_in) {
-                    const authLink = document.getElementById('authLink');
-                    authLink.innerHTML = `<a href="#" onclick="logout()" class="btn-nav">Logout</a>`;
+                    document.getElementById('authLink').innerHTML =
+                        `<a href="#" onclick="logout()" class="btn-nav">Logout</a>`;
                 }
             });
 
@@ -151,27 +122,32 @@
                 .then(() => window.location.reload());
         }
 
-        // Fetch and Render Designs
+        function showTab(tab) {
+            document.getElementById('tabDesigns').classList.toggle('tab-active', tab === 'designs');
+            document.getElementById('tabGifs').classList.toggle('tab-active', tab === 'gifs');
+            document.getElementById('panelDesigns').style.display = tab === 'designs' ? '' : 'none';
+            document.getElementById('panelGifs').style.display  = tab === 'gifs'    ? '' : 'none';
+        }
+
+        // ── Designs ──────────────────────────────────────────────────────────
+
         async function loadGallery() {
             try {
                 const response = await fetch('api.php?type=public');
                 const designs = await response.json();
-                
                 const gallery = document.getElementById('gallery');
                 gallery.innerHTML = '';
 
                 if (!designs || designs.length === 0) {
-                    gallery.innerHTML = '<div style="color: #888; grid-column: 1/-1; text-align: center;">No public designs found. Be the first to share one!</div>';
+                    gallery.innerHTML = '<div style="color:#888;grid-column:1/-1;text-align:center;">No public designs yet.</div>';
                     return;
                 }
 
                 designs.forEach(design => {
                     const card = document.createElement('div');
                     card.className = 'design-card';
-                    
                     const width = design.width || 16;
                     const height = design.height || 16;
-                    
                     card.innerHTML = `
                         <div class="preview-container">
                             <canvas id="canvas-${design.id}" width="${width}" height="${height}"></canvas>
@@ -179,152 +155,89 @@
                         <div class="card-info">
                             <div>
                                 <h3 class="card-title" title="${design.name}">${design.name}</h3>
-                                <div class="card-meta">${width}x${height} • ${new Date(design.created_at).toLocaleDateString()}</div>
+                                <div class="card-meta">${width}×${height} · ${new Date(design.created_at).toLocaleDateString()}</div>
                             </div>
                             <div class="card-actions">
                                 <a href="editor.php?load=${design.id}" class="open-btn">Open in Editor</a>
-                                <button class="open-btn" onclick="sendDesignToMatrix(${design.id})" style="margin-left:10px;">Send to Matrix</button>
                             </div>
                         </div>
                     `;
-                    
                     gallery.appendChild(card);
-                    
-                    // Render to canvas
                     renderPreview(design.grid_data, `canvas-${design.id}`, width, height);
                 });
-
             } catch (error) {
-                console.error('Error loading gallery:', error);
-                document.getElementById('gallery').innerHTML = '<div style="color: red; text-align: center;">Error loading gallery.</div>';
-            }
-        }
-
-        function loadGalleryMatrixIp() {
-            const ip = localStorage.getItem('galleryMatrixIp');
-            const input = document.getElementById('galleryMatrixIp');
-            if (ip && input) {
-                input.value = ip;
-            }
-        }
-
-        function saveGalleryMatrixIp() {
-            const input = document.getElementById('galleryMatrixIp');
-            if (!input) return;
-            const ip = input.value.trim();
-            if (!ip) {
-                alert('Please enter a Matrix IP first.');
-                return;
-            }
-            localStorage.setItem('galleryMatrixIp', ip);
-            alert('Saved Matrix IP for gallery.');
-        }
-
-        async function sendDesignToMatrix(designId) {
-            const input = document.getElementById('galleryMatrixIp');
-            if (!input) {
-                alert('Matrix IP input not found.');
-                return;
-            }
-            const ip = input.value.trim();
-            if (!ip) {
-                alert('Please enter the Matrix IP address.');
-                return;
-            }
-
-            try {
-                const res = await fetch(`api.php?id=${designId}`);
-                const data = await res.json();
-                if (data.status === 'error') {
-                    alert(data.message || 'Error loading design.');
-                    return;
-                }
-
-                const payload = {
-                    width: data.width || 16,
-                    height: data.height || 16,
-                    frames: [data.grid_data],
-                    frame_delay: 80
-                };
-
-                const response = await fetch(`http://${ip}/display`, {
-                    method: 'POST',
-                    body: JSON.stringify(payload)
-                });
-                if (!response.ok) {
-                    alert('Matrix responded with an error status: ' + response.status);
-                    return;
-                }
-                alert('Design sent to matrix.');
-            } catch (err) {
-                console.error('Error sending design to matrix', err);
-                alert('Could not reach the matrix at http://' + ip + '/display.\n' +
-                    'Make sure the matrix is powered and connected to the same network.');
+                document.getElementById('gallery').innerHTML =
+                    '<div style="color:red;text-align:center;">Error loading designs.</div>';
             }
         }
 
         function renderPreview(gridData, canvasId, width, height) {
             const canvas = document.getElementById(canvasId);
             if (!canvas) return;
-            
             const ctx = canvas.getContext('2d');
-            ctx.clearRect(0, 0, width, height);
-            
-            // Fill background with black (not "square lights")
-            ctx.fillStyle = '#000000';
+            ctx.fillStyle = '#000';
             ctx.fillRect(0, 0, width, height);
-
-            // Handle data format (flat array or 2D array)
-            let flatData = [];
-            if (Array.isArray(gridData)) {
-                if (Array.isArray(gridData[0])) {
-                    // 2D array
-                    flatData = gridData.flat();
-                } else {
-                    // Flat array
-                    flatData = gridData;
-                }
-            }
-
-            // Draw pixels
-            flatData.forEach((val, index) => {
+            let flatData = Array.isArray(gridData)
+                ? (Array.isArray(gridData[0]) ? gridData.flat() : gridData)
+                : [];
+            flatData.forEach((val, i) => {
                 if (val && val !== 0 && val !== '0') {
-                    const x = index % width;
-                    const y = Math.floor(index / width);
-                    
-                    // Convert 1 to red (legacy support) or use color value
-                    let color = (val === 1 || val === '1') ? '#ff0000' : val;
-                    
+                    const color = (val === 1 || val === '1') ? '#ff0000' : val;
                     ctx.fillStyle = color;
-                    ctx.fillRect(x, y, 1, 1);
+                    ctx.fillRect(i % width, Math.floor(i / width), 1, 1);
                 }
             });
         }
 
-        // Initialize
-        loadGalleryMatrixIp();
+        // ── GIFs ─────────────────────────────────────────────────────────────
+
+        async function loadGifs() {
+            try {
+                const res = await fetch('api.php?type=publicgifs');
+                const gifs = res.ok ? await res.json() : [];
+                const container = document.getElementById('gifGallery');
+                container.innerHTML = '';
+
+                if (!gifs || gifs.length === 0) {
+                    container.innerHTML = '<div style="color:#888;">No public GIFs yet. Upload one and toggle it public in the editor!</div>';
+                    return;
+                }
+
+                gifs.forEach(item => {
+                    const shortName = item.original_filename.length > 20
+                        ? item.original_filename.substring(0, 20) + '…'
+                        : item.original_filename;
+                    const typeLabel = item.is_gif == 1 ? `${item.frame_count} frames` : 'Image';
+                    const byLine = item.username ? `<div class="gif-card-by">by ${item.username}</div>` : '';
+
+                    const card = document.createElement('div');
+                    card.className = 'gif-card';
+                    card.innerHTML = `
+                        <div class="gif-thumb-wrap">
+                            <img src="${item.file_path}" class="gif-thumb" alt="${shortName}">
+                            <div class="gif-thumb-overlay">Open in Editor</div>
+                        </div>
+                        <div class="gif-card-info">
+                            <div class="gif-card-name" title="${item.original_filename}">${shortName}</div>
+                            <div class="gif-card-meta">${typeLabel} · ${item.width}×${item.height}</div>
+                            ${byLine}
+                        </div>
+                    `;
+
+                    card.querySelector('.gif-thumb-wrap').addEventListener('click', () => {
+                        window.location.href = `editor.php?gif=${item.id}`;
+                    });
+
+                    container.appendChild(card);
+                });
+            } catch (e) {
+                console.error('Error loading GIFs', e);
+            }
+        }
+
+        // Init
         loadGallery();
-
-        function filterGallery() {
-            const filterValue = document.getElementById('sizeFilter').value;
-            const cards = document.querySelectorAll('.design-card');
-            
-            cards.forEach(card => {
-                const size = card.getAttribute('data-size');
-                if (filterValue === 'all') {
-                    card.style.display = 'flex';
-                } else {
-                    // Match specific size (assuming square or taking max dimension)
-                    // If filter is 16, show sizes around 16 (e.g., 8-16) or exact match
-                    // For simplicity, let's do exact match on max dimension
-                    if (size == filterValue) {
-                        card.style.display = 'flex';
-                    } else {
-                        card.style.display = 'none';
-                    }
-                }
-            });
-        }
+        loadGifs();
     </script>
 </body>
 </html>

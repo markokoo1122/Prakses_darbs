@@ -12,9 +12,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const resizeBtn = document.getElementById('resizeBtn');
     const imageInput = document.getElementById('imageInput');
     const isPublicInput = document.getElementById('isPublic');
-    const tabMy = document.getElementById('tabMy');
-    const tabFav = document.getElementById('tabFav');
-    const tabPublic = document.getElementById('tabPublic');
+    const tabMy     = document.getElementById('tabMy');
+    const tabFav    = document.getElementById('tabFav');
+    const tabGifs   = document.getElementById('tabGifs');
     const matrixIpInput = document.getElementById('matrixIp');
     const sendToMatrixBtn = document.getElementById('sendToMatrixBtn');
 
@@ -199,10 +199,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function toggleLed(led) {
-        // Deprecated
-    }
-
     function turnOnLed(led, color = null) {
         const finalColor = color || colorPicker.value;
         if (led.style.backgroundColor !== finalColor) {
@@ -276,7 +272,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const leds = document.querySelectorAll('.led');
         leds.forEach(led => {
             led.classList.remove('active');
-            led.style.backgroundColor = '#222';
+            led.style.backgroundColor = '';
             led.style.boxShadow = '';
         });
     }
@@ -442,22 +438,28 @@ document.addEventListener('DOMContentLoaded', () => {
     async function uploadMediaForBoard(file) {
         // Clear any previous animation state/payload first
         isAnimating = false;
-        animationId++; // Invalidate any running loops
+        animationId++;
+        const thisUploadId = animationId; // capture before any await — used to detect stale responses
         currentMatrixPayload = null;
         stopPreviewAnimation();
-        
+
         const formData = new FormData();
         formData.append('image', file);
-        
+
         try {
             const response = await fetch('api.php?action=upload_media', {
                 method: 'POST',
                 body: formData
             });
             const result = await response.json();
+
+            // If a newer upload started while this one was in-flight, discard this response
+            // entirely — applying it would overwrite the new upload's grid state
+            if (animationId !== thisUploadId) return;
+
             if (result.status === 'success') {
                 console.log('Media converted and saved for board use', result);
-                
+
                 // Store the full animation payload for sending to matrix
                 if (result.frames && result.frames.length > 0) {
                     currentMatrixPayload = {
@@ -475,7 +477,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         }
                     }
                 }
-                
+
                 alert('Image/GIF processed successfully! Click "Send to Matrix" to display it.');
             } else if (result.status === 'error' && result.message === 'Unauthorized') {
                 console.warn('Login required to save media conversions');
@@ -529,29 +531,21 @@ document.addEventListener('DOMContentLoaded', () => {
         
         const leds = document.querySelectorAll('.led');
         for (let i = 0; i < leds.length; i++) {
-            if (i >= frameInts.length) break;
-            const colorInt = frameInts[i];
             const led = leds[i];
-            
-            if (colorInt === 0) {
+            if (i >= frameInts.length || frameInts[i] === 0) {
                 led.classList.remove('active');
-                led.style.backgroundColor = '#222';
+                led.style.backgroundColor = '';
                 led.style.boxShadow = '';
-            } else {
-                // int to hex
-                const r = (colorInt >> 16) & 0xFF;
-                const g = (colorInt >> 8) & 0xFF;
-                const b = colorInt & 0xFF;
-                const hex = "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
-                
-                led.classList.add('active');
-                led.style.backgroundColor = hex;
-                if (GRID_W > 32) {
-                    led.style.boxShadow = `0 0 1px ${hex}`;
-                } else {
-                    led.style.boxShadow = `0 0 4px ${hex}`;
-                }
+                continue;
             }
+            const colorInt = frameInts[i];
+            const r = (colorInt >> 16) & 0xFF;
+            const g = (colorInt >> 8) & 0xFF;
+            const b = colorInt & 0xFF;
+            const hex = "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+            led.classList.add('active');
+            led.style.backgroundColor = hex;
+            led.style.boxShadow = GRID_W > 32 ? `0 0 1px ${hex}` : `0 0 4px ${hex}`;
         }
     }
 
@@ -584,16 +578,13 @@ document.addEventListener('DOMContentLoaded', () => {
         return response.json();
     }
     
-    async function beginFrame(ip, width, height) {
+    async function beginFrame(ip, width, height, bufIndex = -1) {
+        const body = { action: 'proxy_begin_frame', ip: ip, width: width, height: height };
+        if (bufIndex >= 0) body.buf_index = bufIndex;
         const response = await fetch('api.php', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                action: 'proxy_begin_frame',
-                ip: ip,
-                width: width,
-                height: height
-            })
+            body: JSON.stringify(body)
         });
         return response.json();
     }
@@ -633,14 +624,40 @@ document.addEventListener('DOMContentLoaded', () => {
         return response.json();
     }
     
-    async function endFrame(ip) {
+    async function endFrame(ip, bufIndex = -1) {
+        const body = { action: 'proxy_end_frame', ip: ip };
+        if (bufIndex >= 0) body.buf_index = bufIndex;
         const response = await fetch('api.php', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                action: 'proxy_end_frame',
-                ip: ip
-            })
+            body: JSON.stringify(body)
+        });
+        return response.json();
+    }
+
+    async function animInit(ip, count) {
+        const response = await fetch('api.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'proxy_anim_init', ip: ip, count: count })
+        });
+        return response.json();
+    }
+
+    async function animPlay(ip, count, delay) {
+        const response = await fetch('api.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'proxy_anim_play', ip: ip, count: count, delay: delay })
+        });
+        return response.json();
+    }
+
+    async function animStop(ip) {
+        const response = await fetch('api.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'proxy_anim_stop', ip: ip })
         });
         return response.json();
     }
@@ -663,20 +680,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function sendCurrentToMatrix() {
-        if (!matrixIpInput) {
-            alert('Matrix IP input not found on this page.');
-            return;
-        }
+        if (!matrixIpInput) { alert('Matrix IP input not found on this page.'); return; }
         const ip = matrixIpInput.value.trim();
-        if (!ip) {
-            alert('Please enter the Matrix IP address.');
-            return;
-        }
+        if (!ip) { alert('Please enter the Matrix IP address.'); return; }
         localStorage.setItem('matrixIp', ip);
 
         let payload = currentMatrixPayload ? currentMatrixPayload : {
-            width: GRID_W,
-            height: GRID_H,
+            width: GRID_W, height: GRID_H,
             frames: [getGridDataAsFlatInts()],
             frame_delay: 80
         };
@@ -687,104 +697,153 @@ document.addEventListener('DOMContentLoaded', () => {
                 alert('Matrix not reachable. Check WiFi or IP.');
                 return;
             }
-            const width = Math.min(payload.width || GRID_W, 64);
+
+            // Stop any JS-driven loop and any autonomous ESP32 animation
+            isAnimating = false;
+            animationId++;
+            if (animationTimeout) { clearTimeout(animationTimeout); animationTimeout = null; }
+            await animStop(ip).catch(() => {});
+
+            const width  = Math.min(payload.width  || GRID_W, 64);
             const height = Math.min(payload.height || GRID_H, 64);
             const frames = payload.frames || [];
-            const delay = payload.frame_delay || 80;
-            // Force chunked mode for all transmissions to avoid large body issues on ESP32
-            const useFullFrame = false; 
-            
-            // Animation loop function
-            const animate = async () => {
-                if (!isAnimating) return; // Stop if flag cleared
-                
-                for (let i = 0; i < frames.length; i++) {
-                    if (!isAnimating) break; // Check flag inside loop
-                    
-                    const rgbBytes = frameIntsToRGBBytes(frames[i], width, height);
-                    if (useFullFrame) {
-                        const resp = await sendFrameFullBase64(ip, width, height, rgbBytes, i > 0);
-                        // Ignore error on first frame if overlay is problematic, or just log
-                        if (!resp || (resp.status !== 'success' && resp.status !== 'ok')) {
-                            console.warn('Frame ' + i + ' warning:', resp);
-                            // Continue anyway to see if next frames work
-                        }
-                    } else {
-                        // Manual chunking
-                        const startResp = await beginFrame(ip, width, height);
-                        if (!startResp || startResp.status !== 'success') {
-                            console.warn('Error starting frame: ' + (startResp && startResp.message ? startResp.message : 'Unknown'));
-                            // If begin fails, maybe skip this frame or retry?
-                            // For now, continue to next frame to keep loop alive
-                        } else {
-                            const chunk = 8;
-                            for (let start = 0; start < height; start += chunk) {
-                                const count = Math.min(chunk, height - start);
-                                const base = start * width * 3;
-                                const len = count * width * 3;
-                                const bytes = rgbBytes.subarray(base, base + len);
-                                const r = await sendRowsB64(ip, width, height, start, count, bytes);
-                                if (!r || r.status !== 'success') {
-                                    console.warn('Error sending rows ' + start + '-' + (start+count-1) + ': ' + (r && r.message ? r.message : 'Unknown'));
-                                    // Try to continue
-                                }
-                            }
-                            const done = await endFrame(ip);
-                            if (!done || done.status !== 'success') {
-                                console.warn('Error finishing frame: ' + (done && done.message ? done.message : 'Unknown'));
-                            }
-                        }
-                    }
-                    
-                    if (isAnimating) {
-                        await new Promise(res => setTimeout(res, delay));
+            const speedSelect = document.getElementById('animSpeed');
+            const speedMult   = speedSelect ? parseFloat(speedSelect.value) || 1 : 1;
+            // Clamp to 16 ms minimum (~60 fps) so the ESP32 isn't overwhelmed
+            const delay = Math.max(16, Math.round((payload.frame_delay || 80) / speedMult));
+            const chunk  = 32; // 32 rows × 64px × 3B = ~6 KB base64 per request — safe for ESP32
+
+            // Helper: upload one frame via the chunked protocol
+            const uploadFrame = async (frameData, bufIndex) => {
+                const startResp = await beginFrame(ip, width, height, bufIndex);
+                if (!startResp || startResp.status !== 'success') {
+                    console.warn('beginFrame failed for index', bufIndex, startResp);
+                    return false;
+                }
+                const rgbBytes = frameIntsToRGBBytes(frameData, width, height);
+                for (let start = 0; start < height; start += chunk) {
+                    const count = Math.min(chunk, height - start);
+                    const base  = start * width * 3;
+                    const bytes = rgbBytes.subarray(base, base + count * width * 3);
+                    const r = await sendRowsB64(ip, width, height, start, count, bytes);
+                    if (!r || r.status !== 'success') {
+                        console.warn('sendRowsB64 failed rows', start, '-', start + count - 1, r);
                     }
                 }
-                
-                // Recursively call animate if still enabled
-                if (isAnimating) {
-                    animate();
+                const done = await endFrame(ip, bufIndex);
+                if (!done || done.status !== 'success') {
+                    console.warn('endFrame failed for index', bufIndex, done);
                 }
+                return true;
             };
-            
-            // Start the loop
-            isAnimating = true;
-            animate();
-            
-            alert('Animation started on matrix! (Looping)');
+
+            const overlayChecked = document.getElementById('clockOverlay')?.checked;
+
+            if (frames.length <= 1 && !overlayChecked) {
+                // ── Single frame, no overlay: display directly ────────────────────
+                await uploadFrame(frames[0] || [], -1);
+                alert('Image sent to matrix!');
+
+            } else if (frames.length <= 1 && overlayChecked) {
+                // ── Single frame + clock overlay: store as 1-frame animation so
+                //    the ESP32 redraws the image every second before painting the clock
+                sendToMatrixBtn.disabled = true;
+                sendToMatrixBtn.textContent = 'Uploading…';
+                const initResp = await animInit(ip, 1);
+                if (!initResp || initResp.status !== 'success') {
+                    sendToMatrixBtn.disabled = false;
+                    sendToMatrixBtn.textContent = 'Send to Matrix';
+                    alert('Failed to initialise buffer on matrix.');
+                    return;
+                }
+                await uploadFrame(frames[0] || [], 0);
+                await animPlay(ip, 1, 1000);
+                sendToMatrixBtn.disabled = false;
+                sendToMatrixBtn.textContent = 'Send to Matrix';
+                alert('Image sent to matrix!');
+
+            } else {
+                // ── Multi-frame GIF: upload all frames into ESP32 RAM once,
+                //    then let the ESP32 loop through them autonomously — no more
+                //    per-frame HTTP overhead during playback. ──────────────────────
+                sendToMatrixBtn.disabled = true;
+                sendToMatrixBtn.textContent = 'Uploading 0/' + frames.length + '…';
+
+                const initResp = await animInit(ip, frames.length);
+                if (!initResp || initResp.status !== 'success') {
+                    sendToMatrixBtn.disabled = false;
+                    sendToMatrixBtn.textContent = 'Send to Matrix';
+                    alert('Failed to initialise animation buffer on matrix.\nMake sure the firmware is up to date.');
+                    return;
+                }
+
+                let uploadedCount = 0;
+                for (let i = 0; i < frames.length; i++) {
+                    sendToMatrixBtn.textContent = 'Uploading ' + (i + 1) + '/' + frames.length + '…';
+                    const ok = await uploadFrame(frames[i], i);
+                    if (ok) {
+                        uploadedCount++;
+                    } else {
+                        // beginFrame returned OOM (507) — matrix is out of memory.
+                        // Play back however many frames fit rather than aborting entirely.
+                        console.warn('Frame', i, 'rejected by matrix (OOM). Playing', uploadedCount, 'frames.');
+                        break;
+                    }
+                }
+
+                if (uploadedCount === 0) {
+                    sendToMatrixBtn.disabled = false;
+                    sendToMatrixBtn.textContent = 'Send to Matrix';
+                    alert('Matrix ran out of memory before storing any frames.\nTry a shorter or smaller GIF.');
+                    return;
+                }
+
+                const playResp = await animPlay(ip, uploadedCount, delay);
+                sendToMatrixBtn.disabled = false;
+                sendToMatrixBtn.textContent = 'Send to Matrix';
+
+                if (!playResp || playResp.status !== 'success') {
+                    alert('Frames uploaded but playback failed to start.');
+                } else {
+                    const msg = uploadedCount < frames.length
+                        ? `Matrix only had room for ${uploadedCount}/${frames.length} frames — playing those.`
+                        : `Uploaded ${uploadedCount} frames — playing autonomously on matrix!`;
+                    alert(msg);
+                }
+            }
         } catch (err) {
             console.error('Error sending to matrix', err);
-            alert('Could not reach the server proxy.\n' +
-                  'Make sure the matrix is powered and connected to the same network.');
+            if (sendToMatrixBtn) { sendToMatrixBtn.disabled = false; sendToMatrixBtn.textContent = 'Send to Matrix'; }
+            alert('Could not reach the server proxy.\nMake sure the matrix is powered and on the same network.');
         }
     }
 
     // API Functions
     async function fetchDesigns(type = 'my') {
         currentView = type;
-        
+
         // Reset tabs
-        tabMy.style.background = '#333';
-        tabFav.style.background = '#333';
-        tabPublic.style.background = '#333';
-        
+        tabMy.classList.remove('tab-active');
+        tabFav.classList.remove('tab-active');
+        if (tabGifs) tabGifs.classList.remove('tab-active');
+
         // Highlight active
-        if (type === 'my') tabMy.style.background = '#2196F3';
-        else if (type === 'favorites') tabFav.style.background = '#2196F3';
-        else tabPublic.style.background = '#2196F3';
+        if (type === 'my') tabMy.classList.add('tab-active');
+        else tabFav.classList.add('tab-active');
 
         designList.innerHTML = '<div class="design-item">Loading...</div>';
         
         try {
             const response = await fetch(`api.php?type=${type}`);
             const designs = await response.json();
-            
+
             if (response.status === 401 && type === 'my') {
                 designList.innerHTML = '<div class="design-item">Please Login to view your designs</div>';
                 return;
             }
-            
+
             renderDesignList(designs);
+
         } catch (error) {
             console.error('Error fetching designs:', error);
             designList.innerHTML = '<div class="design-item">Error loading designs</div>';
@@ -842,12 +901,12 @@ document.addEventListener('DOMContentLoaded', () => {
         designs.forEach(design => {
             const div = document.createElement('div');
             div.classList.add('design-item');
-            
+
             let dimInfo = '';
             if (design.width && design.height) {
                 dimInfo = `<small style="color:#888;">${design.width}x${design.height}</small>`;
             }
-            
+
             div.innerHTML = `
                 <div style="flex:1;">
                     <span>${design.name}</span> <br>
@@ -858,7 +917,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     ${currentView === 'public' ? `<button class="fav-btn" style="padding:2px 5px; margin-top:5px; width:auto; font-size:12px;">★ Save</button>` : ''}
                 </div>
             `;
-            
+
             // Load on click (except if clicking button)
             div.addEventListener('click', (e) => {
                 if (e.target.classList.contains('fav-btn')) return;
@@ -886,6 +945,154 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    function parseHex(hex) {
+        const n = parseInt(hex.replace('#', ''), 16);
+        return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+    }
+
+    // ── GIF Library ──────────────────────────────────────────────────────────
+
+    async function fetchGifs() {
+        currentView = 'gifs';
+        tabMy.classList.remove('tab-active');
+        tabFav.classList.remove('tab-active');
+        if (tabGifs) tabGifs.classList.add('tab-active');
+
+        designList.innerHTML = '<div class="design-item">Loading...</div>';
+        try {
+            const response = await fetch('api.php?type=mygifs');
+            if (response.status === 401) {
+                designList.innerHTML = '<div class="design-item">Please login to view saved GIFs</div>';
+                return;
+            }
+            const items = await response.json();
+            renderGifList(items);
+        } catch (err) {
+            designList.innerHTML = '<div class="design-item">Error loading GIFs</div>';
+        }
+    }
+
+    function buildGifCards(items, { canDelete = false, canTogglePublic = false, onAfterDelete = null } = {}) {
+        const grid = document.createElement('div');
+        grid.classList.add('gif-card-grid');
+
+        items.forEach(item => {
+            const card = document.createElement('div');
+            card.classList.add('gif-card');
+            const shortName = item.original_filename.length > 15
+                ? item.original_filename.substring(0, 15) + '…'
+                : item.original_filename;
+            const typeLabel = item.is_gif == 1 ? `${item.frame_count} frames` : 'Image';
+            const isPub = parseInt(item.is_public || 0);
+            const byLine = item.username ? `<div class="gif-card-by">by ${item.username}</div>` : '';
+
+            card.innerHTML = `
+                <div class="gif-thumb-wrap">
+                    ${item.file_path
+                        ? `<img src="${item.file_path}" class="gif-thumb" alt="preview">`
+                        : `<div class="gif-thumb-placeholder">?</div>`}
+                    <div class="gif-thumb-overlay">Load</div>
+                </div>
+                <div class="gif-card-info">
+                    <div class="gif-card-name" title="${item.original_filename}">${shortName}</div>
+                    <div class="gif-card-meta">${typeLabel} · ${item.width}×${item.height}</div>
+                    ${byLine}
+                    <div class="gif-card-actions">
+                        ${canTogglePublic ? `<button class="pub-btn${isPub ? ' pub-on' : ''}" title="${isPub ? 'Make private' : 'Share publicly'}">${isPub ? '🌐' : '🔒'}</button>` : ''}
+                        ${canDelete ? `<button class="del-btn" title="Delete">✕</button>` : ''}
+                    </div>
+                </div>
+            `;
+
+            card.querySelector('.gif-thumb-wrap').addEventListener('click', () => loadMedia(item.id));
+
+            if (canTogglePublic) {
+                card.querySelector('.pub-btn').addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    const res = await fetch('api.php', {
+                        method: 'POST',
+                        body: JSON.stringify({ action: 'toggle_media_public', id: item.id })
+                    });
+                    const d = await res.json();
+                    if (d.status === 'success') fetchGifs();
+                });
+            }
+
+            if (canDelete) {
+                card.querySelector('.del-btn').addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    if (!confirm(`Delete "${item.original_filename}"?`)) return;
+                    const res = await fetch('api.php', {
+                        method: 'POST',
+                        body: JSON.stringify({ action: 'delete_media', id: item.id })
+                    });
+                    const d = await res.json();
+                    if (d.status === 'success') (onAfterDelete || fetchGifs)();
+                    else alert('Delete failed');
+                });
+            }
+
+            grid.appendChild(card);
+        });
+
+        return grid;
+    }
+
+    function renderGifList(items) {
+        designList.innerHTML = '';
+        if (!items || items.length === 0) {
+            designList.innerHTML = '<div style="padding:10px;color:#555;">No saved GIFs yet — upload one first</div>';
+            return;
+        }
+        designList.appendChild(buildGifCards(items, { canDelete: true, canTogglePublic: true }));
+    }
+
+    async function loadMedia(id) {
+        designList.querySelectorAll('.design-item').forEach(el => el.classList.remove('loading'));
+        const clicked = [...designList.querySelectorAll('.design-item')]
+            .find(el => el.querySelector('.del-btn') &&
+                el.dataset.mediaId == id);
+
+        isAnimating = false;
+        animationId++;
+        currentMatrixPayload = null;
+        stopPreviewAnimation();
+
+        designList.innerHTML = '<div class="design-item">Loading GIF…</div>';
+
+        try {
+            const response = await fetch('api.php', {
+                method: 'POST',
+                body: JSON.stringify({ action: 'load_media', id: id })
+            });
+            const result = await response.json();
+
+            // Re-render the list so the user can pick another
+            fetchGifs();
+
+            if (result.status !== 'success') {
+                alert('Error loading GIF: ' + (result.message || 'Unknown error'));
+                return;
+            }
+
+            if (result.frames && result.frames.length > 0) {
+                currentMatrixPayload = {
+                    width: result.width,
+                    height: result.height,
+                    frames: result.frames,
+                    frame_delay: result.frame_delay || 80
+                };
+                drawFrameOnGrid(result.frames[0], result.width, result.height);
+                if (result.frames.length > 1) {
+                    startPreviewAnimation(currentMatrixPayload);
+                }
+            }
+        } catch (err) {
+            fetchGifs();
+            alert('Could not load GIF from server.');
+        }
+    }
+
     // Event Listeners
     clearBtn.addEventListener('click', clearGrid);
     saveBtn.addEventListener('click', saveDesign);
@@ -896,13 +1103,51 @@ document.addEventListener('DOMContentLoaded', () => {
     
     tabMy.addEventListener('click', () => fetchDesigns('my'));
     tabFav.addEventListener('click', () => fetchDesigns('favorites'));
-    tabPublic.addEventListener('click', () => fetchDesigns('public'));
+    if (tabGifs) tabGifs.addEventListener('click', () => fetchGifs());
+
+    const clockOnBtn  = document.getElementById('clockOnBtn');
+    const clockOffBtn = document.getElementById('clockOffBtn');
+    const tzSelect    = document.getElementById('tzSelect');
+
+    async function sendClockCommand(action) {
+        const ip = matrixIpInput ? matrixIpInput.value.trim() : '';
+        const tz = tzSelect ? parseInt(tzSelect.value) : 2;
+        const overlayEl = document.getElementById('clockOverlay');
+        const overlay = overlayEl && overlayEl.checked ? 1 : 0;
+
+        let body;
+        if (action === 'proxy_clock_on') {
+            const digitHex = document.getElementById('clockColorDigit')?.value || '#ffffff';
+            const barHex   = document.getElementById('clockColorBar')?.value   || '#0044ff';
+            const d = parseHex(digitHex);
+            const b = parseHex(barHex);
+            body = { action, ip, tz, overlay, style: 99,
+                     dr: d.r, dg: d.g, db: d.b,
+                     br: b.r, bg: b.g, bb: b.b };
+        } else {
+            body = { action, ip };
+        }
+
+        try {
+            const res = await fetch('api.php', {
+                method: 'POST',
+                body: JSON.stringify(body)
+            });
+            const data = await res.json();
+            if (data.status !== 'success') alert('Clock command failed: ' + (data.response || 'no response from matrix'));
+        } catch (e) {
+            alert('Could not reach matrix.');
+        }
+    }
+
+    if (clockOnBtn)  clockOnBtn.addEventListener('click',  () => sendClockCommand('proxy_clock_on'));
+    if (clockOffBtn) clockOffBtn.addEventListener('click', () => sendClockCommand('proxy_clock_off'));
 
     // Initial setup
     initGrid(16, 16);
     fetchDesigns('my'); // Try to load user designs first
 
-    // Check for load parameter
+    // Check for load parameter (pixel design)
     const urlParams = new URLSearchParams(window.location.search);
     const loadId = urlParams.get('load');
     if (loadId) {
@@ -914,9 +1159,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else {
                     designNameInput.value = data.name;
                     loadGridData(data.grid_data, data.width, data.height);
-                    // Also switch to Public view if not my design, but for now just load it
                 }
             })
             .catch(err => console.error('Error loading design:', err));
+    }
+
+    // Check for gif= parameter (load a saved GIF from public gallery)
+    const gifId = urlParams.get('gif');
+    if (gifId) {
+        loadMedia(parseInt(gifId));
     }
 });

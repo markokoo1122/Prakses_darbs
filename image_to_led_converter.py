@@ -22,31 +22,69 @@ class LEDMatrixConverter:
         img = img.resize((self.width, self.height), Image.Resampling.LANCZOS)
         return np.array(img)
     
+    @staticmethod
+    def _gif_background_color(gif):
+        """Return (R,G,B,255) of the GIF's declared background palette entry."""
+        try:
+            idx = gif.info.get('background', 0) or 0
+            pal = gif.getpalette()          # flat [R,G,B, R,G,B, ...]
+            if pal and len(pal) > idx * 3 + 2:
+                return (pal[idx*3], pal[idx*3+1], pal[idx*3+2], 255)
+        except Exception:
+            pass
+        return (0, 0, 0, 255)
+
     def load_gif(self, filepath):
         gif = Image.open(filepath)
+        bg  = self._gif_background_color(gif)
         frames = []
-        
-        for frame in ImageSequence.Iterator(gif):
-            f = frame.convert('RGBA')
-            f = f.resize((self.width, self.height), Image.Resampling.LANCZOS)
+        canvas = Image.new('RGBA', gif.size, bg)
+
+        for raw_frame in ImageSequence.Iterator(gif):
+            disposal = raw_frame.info.get('disposal', 0)
+            saved    = canvas.copy() if disposal == 3 else None
+
+            frame_rgba = raw_frame.convert('RGBA')
+            canvas.paste(frame_rgba, (0, 0), frame_rgba)
+
+            # NEAREST keeps hard palette edges sharp; LANCZOS blurs them
+            f = canvas.copy().resize((self.width, self.height), Image.Resampling.NEAREST)
             frames.append(np.array(f))
-        
+
+            if disposal == 2:
+                canvas = Image.new('RGBA', gif.size, bg)
+            elif disposal == 3 and saved:
+                canvas = saved
+
         return frames
-    
+
     def load_gif_with_durations(self, filepath):
         gif = Image.open(filepath)
-        frames = []
+        bg  = self._gif_background_color(gif)
+        frames    = []
         durations = []
-        
-        for frame in ImageSequence.Iterator(gif):
-            f = frame.convert('RGBA')
-            f = f.resize((self.width, self.height), Image.Resampling.LANCZOS)
+        canvas    = Image.new('RGBA', gif.size, bg)
+
+        for raw_frame in ImageSequence.Iterator(gif):
+            duration = raw_frame.info.get('duration', gif.info.get('duration', 0))
+            if not duration:
+                duration = 80
+            durations.append(int(duration))
+
+            disposal = raw_frame.info.get('disposal', 0)
+            saved    = canvas.copy() if disposal == 3 else None
+
+            frame_rgba = raw_frame.convert('RGBA')
+            canvas.paste(frame_rgba, (0, 0), frame_rgba)
+
+            f = canvas.copy().resize((self.width, self.height), Image.Resampling.NEAREST)
             frames.append(np.array(f))
-            duration = frame.info.get('duration', gif.info.get('duration', 0))
-            if duration is None:
-                duration = 0
-            durations.append(duration)
-        
+
+            if disposal == 2:
+                canvas = Image.new('RGBA', gif.size, bg)
+            elif disposal == 3 and saved:
+                canvas = saved
+
         return frames, durations
     
     def apply_effect(self, image, effect='none'):
@@ -101,9 +139,10 @@ class LEDMatrixConverter:
     def get_frame_data(self, image_data):
         """Convert image data (RGB/RGBA) to list of integer colors (0xRRGGBB), alpha<128 -> off"""
         pixels = []
+        h, w = image_data.shape[:2]   # use actual image dims, not self.width/height
         has_alpha = image_data.shape[-1] == 4
-        for y in range(self.height):
-            for x in range(self.width):
+        for y in range(h):
+            for x in range(w):
                 if has_alpha:
                     r, g, b, a = image_data[y, x]
                     if int(a) < 128:
@@ -154,11 +193,12 @@ MatrixPanel_I2S_DMA *dma_display = nullptr;
             # Store frames as PROGMEM
             for idx, frame in enumerate(image_data):
                 frame = self.apply_effect(frame, effect)
-                code += f"const uint8_t frame{idx}[{self.width * self.height * 3}] PROGMEM = {{\n"
-                
+                fh, fw = frame.shape[:2]
+                code += f"const uint8_t frame{idx}[{fw * fh * 3}] PROGMEM = {{\n"
+
                 pixel_data = []
-                for y in range(self.height):
-                    for x in range(self.width):
+                for y in range(fh):
+                    for x in range(fw):
                         px = frame[y, x]
                         r, g, b = int(px[0]), int(px[1]), int(px[2])
                         pixel_data.extend([r, g, b])
@@ -178,11 +218,12 @@ MatrixPanel_I2S_DMA *dma_display = nullptr;
         else:
             # Single image
             image_data = self.apply_effect(image_data, effect)
-            code += f"const uint8_t imageData[{self.width * self.height * 3}] PROGMEM = {{\n"
-            
+            fh, fw = image_data.shape[:2]
+            code += f"const uint8_t imageData[{fw * fh * 3}] PROGMEM = {{\n"
+
             pixel_data = []
-            for y in range(self.height):
-                for x in range(self.width):
+            for y in range(fh):
+                for x in range(fw):
                     px = image_data[y, x]
                     r, g, b = int(px[0]), int(px[1]), int(px[2])
                     pixel_data.extend([r, g, b])
@@ -410,23 +451,57 @@ def web_main():
     except Exception:
         is_gif = filepath.lower().endswith(".gif")
     
+    # Conservative heap budget for ESP32 without PSRAM (WiFi + WebServer uses ~230 KB).
+    # If the user has PSRAM enabled in Arduino IDE (Tools → PSRAM → Enabled) ps_malloc
+    # works and hundreds of full-res frames fit — but we can't detect that from here,
+    # so we auto-downscale for safety.
+    HEAP_BUDGET   = 70 * 1024   # ~70 KB available for frame buffers without PSRAM
+    MAX_WEB_FRAMES = 40
+
     try:
         if is_gif:
             frames, durations = converter.load_gif_with_durations(filepath)
+
+            # Cap frame count first
+            if len(frames) > MAX_WEB_FRAMES:
+                step   = max(1, len(frames) // MAX_WEB_FRAMES)
+                frames    = frames[::step]
+                durations = durations[::step]
+
+            # Auto-downscale resolution so frames fit in ESP32 heap without PSRAM.
+            # 64×64×3 = 12 288 B/frame → ~5-6 frames max without PSRAM.
+            # 32×32×3 =  3 072 B/frame → ~22 frames max without PSRAM.
+            out_w, out_h = converter.width, converter.height
+            n = len(frames)
+            if n * out_w * out_h * 3 > HEAP_BUDGET:
+                out_w, out_h = 32, 32
+                resized = []
+                for f in frames:
+                    img = Image.fromarray(f.astype(np.uint8))
+                    img = img.resize((out_w, out_h), Image.Resampling.NEAREST)
+                    resized.append(np.array(img))
+                frames = resized
+                # Re-cap: at 32×32 budget allows ~22 frames
+                max_at_small = HEAP_BUDGET // (out_w * out_h * 3)
+                if n > max_at_small:
+                    step   = max(1, n // max_at_small)
+                    frames    = frames[::step]
+                    durations = durations[::step]
+
             frame_delay = converter.calculate_frame_delay(durations)
             code = converter.generate_arduino_code(frames, is_gif=True, effect=effect, frame_delay=frame_delay)
-            
+
             # Prepare frame data for web
             frames_data = []
             for frame in frames:
                 frame_with_effect = converter.apply_effect(frame, effect)
                 frames_data.append(converter.get_frame_data(frame_with_effect))
-                
+
             result = {
                 "status": "ok",
                 "is_gif": True,
-                "width": converter.width,
-                "height": converter.height,
+                "width": out_w,
+                "height": out_h,
                 "frame_count": len(frames),
                 "frame_delay": frame_delay,
                 "arduino_code": code,

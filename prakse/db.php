@@ -90,10 +90,24 @@ $sql = "CREATE TABLE IF NOT EXISTS media_conversions (
     height INT DEFAULT 64,
     frame_count INT DEFAULT 1,
     frame_delay INT DEFAULT NULL,
-    arduino_code MEDIUMTEXT NOT NULL,
+    arduino_code MEDIUMTEXT NULL,
+    file_path VARCHAR(500) DEFAULT NULL,
+    is_public TINYINT(1) DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
 )";
 $conn->query($sql);
+
+// Migration: add file_path if missing; relax arduino_code NOT NULL
+$mc_cols = $conn->query("SHOW COLUMNS FROM media_conversions");
+$mc_existing = [];
+while ($r = $mc_cols->fetch_assoc()) $mc_existing[] = $r['Field'];
+if (!in_array('file_path', $mc_existing)) {
+    $conn->query("ALTER TABLE media_conversions ADD COLUMN file_path VARCHAR(500) DEFAULT NULL");
+}
+if (!in_array('is_public', $mc_existing)) {
+    $conn->query("ALTER TABLE media_conversions ADD COLUMN is_public TINYINT(1) DEFAULT 0");
+}
+$conn->query("ALTER TABLE media_conversions MODIFY COLUMN arduino_code MEDIUMTEXT NULL DEFAULT NULL");
 
 ?>

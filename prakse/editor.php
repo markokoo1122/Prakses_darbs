@@ -7,15 +7,6 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <!-- Background Animation -->
-    <div class="bg-animation">
-        <div class="bg-square" style="top: 10%; left: 10%; width: 100px; height: 100px; animation-duration: 8s;"></div>
-        <div class="bg-square" style="top: 70%; left: 80%; width: 150px; height: 150px; animation-duration: 12s;"></div>
-        <div class="bg-square" style="top: 40%; left: 40%; width: 80px; height: 80px; animation-duration: 6s;"></div>
-        <div class="bg-square" style="top: 20%; left: 60%; width: 120px; height: 120px; animation-duration: 15s;"></div>
-        <div class="bg-square" style="top: 80%; left: 20%; width: 60px; height: 60px; animation-duration: 9s;"></div>
-    </div>
-
     <nav>
         <a href="index.php" class="logo">LED Matrix</a>
         <ul>
@@ -25,9 +16,9 @@
         </ul>
     </nav>
 
-    <div class="container">
+    <div class="container editor-page">
         <h1>Design Editor</h1>
-        
+
         <div class="main-editor-container">
             <!-- Controls -->
             <div class="controls">
@@ -53,7 +44,7 @@
                         <button id="eraserBtn" class="tool-btn" title="Eraser">🧹</button>
                         <button id="bucketBtn" class="tool-btn" title="Fill Bucket">🪣</button>
                     </div>
-                    
+
                     <label>Brush Size</label>
                     <div style="display: flex; gap: 5px; margin-bottom: 10px;">
                         <button class="size-btn active" data-size="1">1x</button>
@@ -62,7 +53,7 @@
                     </div>
 
                     <button id="clearBtn" class="clear-btn">Clear Matrix</button>
-                    
+
                     <label style="margin-top: 10px;">Import Image</label>
                     <div class="file-input-wrapper">
                         <button class="file-input-btn">Choose File</button>
@@ -80,29 +71,88 @@
                 </div>
 
                 <div class="control-group">
-                    <label for="matrixIp">Matrix IP (for sending designs)</label>
+                    <label for="matrixIp">Matrix IP</label>
                     <input type="text" id="matrixIp" placeholder="e.g. 192.168.0.50">
-                    <button id="sendToMatrixBtn" style="margin-top: 10px;">Send Current Design to Matrix</button>
+                    <label for="animSpeed" style="margin-top: 8px;">Animation Speed</label>
+                    <select id="animSpeed">
+                        <option value="0.1">0.1× (very slow)</option>
+                        <option value="0.2">0.2×</option>
+                        <option value="0.33">0.33×</option>
+                        <option value="0.5">0.5× (half speed)</option>
+                        <option value="0.75">0.75×</option>
+                        <option value="1" selected>1× (original)</option>
+                        <option value="1.5">1.5×</option>
+                        <option value="2">2×</option>
+                        <option value="3">3×</option>
+                    </select>
+                    <button id="sendToMatrixBtn" style="margin-top: 10px;">Send to Matrix</button>
+                </div>
+
+                <div class="control-group">
+                    <label>Clock</label>
+                    <select id="tzSelect" style="margin-bottom: 6px;">
+                        <option value="-12">UTC-12</option>
+                        <option value="-11">UTC-11</option>
+                        <option value="-10">UTC-10</option>
+                        <option value="-9">UTC-9</option>
+                        <option value="-8">UTC-8</option>
+                        <option value="-7">UTC-7</option>
+                        <option value="-6">UTC-6</option>
+                        <option value="-5">UTC-5</option>
+                        <option value="-4">UTC-4</option>
+                        <option value="-3">UTC-3</option>
+                        <option value="-2">UTC-2</option>
+                        <option value="-1">UTC-1</option>
+                        <option value="0">UTC+0</option>
+                        <option value="1">UTC+1</option>
+                        <option value="2" selected>UTC+2</option>
+                        <option value="3">UTC+3</option>
+                        <option value="4">UTC+4</option>
+                        <option value="5">UTC+5</option>
+                        <option value="6">UTC+6</option>
+                        <option value="7">UTC+7</option>
+                        <option value="8">UTC+8</option>
+                        <option value="9">UTC+9</option>
+                        <option value="10">UTC+10</option>
+                        <option value="11">UTC+11</option>
+                        <option value="12">UTC+12</option>
+                    </select>
+                    <div style="display:flex; gap:8px; margin-bottom:6px;">
+                        <div style="flex:1;">
+                            <label for="clockColorDigit" style="font-size:0.8em;font-weight:normal;">Numbers</label>
+                            <input type="color" id="clockColorDigit" value="#ffffff" style="width:100%;height:28px;padding:1px;">
+                        </div>
+                        <div style="flex:1;">
+                            <label for="clockColorBar" style="font-size:0.8em;font-weight:normal;">Line</label>
+                            <input type="color" id="clockColorBar" value="#0044ff" style="width:100%;height:28px;padding:1px;">
+                        </div>
+                    </div>
+                    <div style="margin-bottom:6px;">
+                        <input type="checkbox" id="clockOverlay">
+                        <label for="clockOverlay" style="display:inline;font-weight:normal;font-size:0.85em;">Overlay on image/GIF</label>
+                    </div>
+                    <div style="display:flex; gap:6px;">
+                        <button id="clockOnBtn" style="flex:1;">Start Clock</button>
+                        <button id="clockOffBtn" style="flex:1;">Stop Clock</button>
+                    </div>
                 </div>
             </div>
 
             <!-- LED Matrix -->
-            <center><div class="matrix-container">
+            <div class="matrix-container">
                 <div class="led-grid" id="ledGrid">
-                    <!-- Grid generated by JS -->
                 </div>
-            </div></center>
+            </div>
 
             <!-- Saved Designs -->
-            <div class="controls" style="max-height: 600px; display: flex; flex-direction: column;">
+            <div class="controls library-panel">
                 <h3>Library</h3>
                 <div style="display: flex; gap: 5px; margin-bottom: 10px;">
-                    <button id="tabMy" class="secondary-btn" style="flex:1; padding: 5px; font-size: 0.9em;">My</button>
-                    <button id="tabFav" class="secondary-btn" style="flex:1; background: #333; padding: 5px; font-size: 0.9em;">Favs</button>
-                    <button id="tabPublic" class="secondary-btn" style="flex:1; background: #333; padding: 5px; font-size: 0.9em;">Gallery</button>
+                    <button id="tabMy" class="secondary-btn tab-active" style="flex:1; padding: 5px; font-size: 0.9em;">My</button>
+                    <button id="tabFav" class="secondary-btn" style="flex:1; padding: 5px; font-size: 0.9em;">Favs</button>
+                    <button id="tabGifs" class="secondary-btn" style="flex:1; padding: 5px; font-size: 0.9em;">GIFs</button>
                 </div>
-                <div id="designList" class="design-list" style="flex: 1; overflow-y: auto;">
-                    <!-- Designs loaded from API -->
+                <div id="designList" class="design-list">
                     <div class="design-item">Loading...</div>
                 </div>
             </div>
@@ -112,16 +162,12 @@
     <script src="background.js"></script>
     <script src="script.js"></script>
     <script>
-        // Check auth for navbar
         fetch('auth.php?action=check')
             .then(res => res.json())
             .then(data => {
                 if (data.logged_in) {
                     const authLink = document.getElementById('authLink');
                     authLink.innerHTML = `<a href="#" onclick="logout()" class="btn-nav">Logout</a>`;
-                } else {
-                    // Optional: Redirect to login if editor requires auth? 
-                    // For now, let them play but fail to save if not logged in.
                 }
             });
 
@@ -130,6 +176,6 @@
                 .then(() => window.location.reload());
         }
     </script>
-    
+
 </body>
 </html>
