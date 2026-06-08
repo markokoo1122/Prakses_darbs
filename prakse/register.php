@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -20,40 +20,32 @@
             width: 300px;
             text-align: center;
             border: 1px solid #333;
+            position: relative;
         }
-        .auth-container h2 {
-            margin-bottom: 20px;
-            color: #2196F3;
-        }
-        .form-group {
-            margin-bottom: 15px;
-            text-align: left;
-        }
-        .form-group label {
-            display: block;
-            margin-bottom: 5px;
-        }
+        .auth-container h2 { margin-bottom: 20px; color: #2196F3; }
+        .form-group { margin-bottom: 15px; text-align: left; }
+        .form-group label { display: block; margin-bottom: 5px; }
         .form-group input {
-            width: 100%;
-            padding: 10px;
-            background: #222;
-            border: 1px solid #444;
-            color: white;
-            border-radius: 5px;
+            width: 100%; padding: 10px;
+            background: #222; border: 1px solid #444;
+            color: white; border-radius: 5px;
         }
-        .link {
-            margin-top: 15px;
-            display: block;
-            color: #aaa;
-            text-decoration: none;
+        .link { margin-top: 15px; display: block; color: #aaa; text-decoration: none; }
+        .link:hover { color: white; }
+        .theme-toggle {
+            position: absolute; top: 12px; right: 12px;
+            background: #1a1a1a; border: 1px solid #333; color: #aaa;
+            width: 30px; height: 30px; border-radius: 50%;
+            cursor: pointer; font-size: 14px;
+            display: flex; align-items: center; justify-content: center;
+            padding: 0; margin: 0;
         }
-        .link:hover {
-            color: white;
-        }
+        .theme-toggle:hover { border-color: #aaa; color: #fff; }
     </style>
 </head>
 <body>
     <div class="auth-container">
+        <button class="theme-toggle" id="themeToggle" title="Toggle light/dark">☀</button>
         <h2>Register</h2>
         <form id="registerForm">
             <div class="form-group">
@@ -72,6 +64,21 @@
     </div>
 
     <script src="background.js"></script>
+    <script>
+        (function() {
+            const root = document.documentElement;
+            const saved = localStorage.getItem('theme') || 'dark';
+            root.setAttribute('data-theme', saved);
+            const btn = document.getElementById('themeToggle');
+            btn.textContent = saved === 'dark' ? '☀' : '☾';
+            btn.addEventListener('click', () => {
+                const next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+                root.setAttribute('data-theme', next);
+                localStorage.setItem('theme', next);
+                btn.textContent = next === 'dark' ? '☀' : '☾';
+            });
+        })();
+    </script>
     <script>
         document.getElementById('registerForm').addEventListener('submit', async (e) => {
             e.preventDefault();

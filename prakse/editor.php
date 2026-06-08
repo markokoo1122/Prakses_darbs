@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -12,7 +12,9 @@
         <ul>
             <li><a href="public.php">Gallery</a></li>
             <li><a href="editor.php" class="active">Editor</a></li>
+            <li><a href="code.php">Source</a></li>
             <li id="authLink"><a href="login.php" class="btn-nav">Login</a></li>
+            <li><button class="theme-toggle-btn" id="themeToggle" title="Toggle light/dark">☀</button></li>
         </ul>
     </nav>
 
@@ -162,12 +164,27 @@
     <script src="background.js"></script>
     <script src="script.js"></script>
     <script>
+        (function() {
+            const root = document.documentElement;
+            const saved = localStorage.getItem('theme') || 'dark';
+            root.setAttribute('data-theme', saved);
+            const btn = document.getElementById('themeToggle');
+            btn.textContent = saved === 'dark' ? '☀' : '☾';
+            btn.addEventListener('click', () => {
+                const next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+                root.setAttribute('data-theme', next);
+                localStorage.setItem('theme', next);
+                btn.textContent = next === 'dark' ? '☀' : '☾';
+            });
+        })();
+    </script>
+    <script>
         fetch('auth.php?action=check')
             .then(res => res.json())
             .then(data => {
                 if (data.logged_in) {
                     const authLink = document.getElementById('authLink');
-                    authLink.innerHTML = `<a href="#" onclick="logout()" class="btn-nav">Logout</a>`;
+                    authLink.innerHTML = `<a href="#" onclick="logout()" class="btn-nav">Logout (${data.user.username})</a>`;
                 }
             });
 
