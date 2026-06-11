@@ -59,6 +59,48 @@ uint16_t      customDigitCol = 0xFFFF;  // white default
 uint16_t      customBarCol   = 0x0008;  // dark blue default
 unsigned long clockLastMs    = 0;
 
+struct ClockTheme {
+    uint8_t digitR, digitG, digitB;
+    uint8_t colonR, colonG, colonB;
+    uint8_t barR,   barG,   barB;
+};
+
+const ClockTheme CLOCK_THEMES[] PROGMEM = {
+    {220,220,255,  80,120,255,  20, 60,220}, // 0: Minimal (default)
+    {  0,255,200,   0,220,255,   0,180,255}, // 1: Neon
+    {255,160,  0, 180, 80,  0, 200, 80,  0}, // 2: Retro
+    {  0,255, 65,   0,200, 40,   0,160, 20}, // 3: Matrix
+    {255, 80,  0, 255, 60,  0, 255,180,  0}, // 4: Fire
+    {180,230,255, 140,200,255, 100,200,255}, // 5: Ice
+    {200, 80,255, 180, 60,255, 120, 20,255}, // 6: Violet
+    {255,200, 20, 200,160, 10, 220,140,  0}, // 7: Gold
+    {255,150,180, 255,100,150, 120,220,100}, // 8: Spring
+    {255,230,  0, 255,200,  0, 255,120,  0}, // 9: Summer
+    {255,100,  0, 220, 70,  0, 180, 40,  0}, // 10: Autumn
+    {200,240,255, 160,220,255,  80,160,220}, // 11: Winter
+    {180,  0,255, 220, 80,255, 255,220,  0}, // 12: Storm
+    {255,160, 80, 255,120, 40, 220, 60, 20}, // 13: Sunrise
+    {255,220,  0, 255,200,  0,   0, 80,220}, // 14: Pac-Man
+    {255,  0,180, 200,  0,255,   0,220,255}, // 15: Cyberpunk
+    { 80,220,  0,  60,180,  0,  30,100,  0}, // 16: Creeper
+    {180,100,255, 140, 60,255,  60,  0,180}, // 17: Galaxy
+};
+
+void getClockColors(int style, uint16_t& colDigit, uint16_t& colColon, uint16_t& colBar) {
+    if (style == 99) {
+        colDigit = customDigitCol;
+        colColon = customDigitCol;
+        colBar   = customBarCol;
+        return;
+    }
+    int idx = (style >= 1 && style <= 17) ? style : 0;
+    ClockTheme t;
+    memcpy_P(&t, &CLOCK_THEMES[idx], sizeof(t));
+    colDigit = dma_display->color565(t.digitR, t.digitG, t.digitB);
+    colColon = dma_display->color565(t.colonR, t.colonG, t.colonB);
+    colBar   = dma_display->color565(t.barR,   t.barG,   t.barB);
+}
+
 // 5×9 pixel font for digits 0-9 (each byte = one row, bit4=leftmost pixel)
 const uint8_t DIGIT_FONT[10][9] PROGMEM = {
     {14,17,17,17,17,17,17,17,14}, // 0
@@ -95,85 +137,7 @@ void drawClock() {
 
     // Digit / colon / bar colours per style
     uint16_t colDigit, colColon, colBar;
-
-    switch (clockStyle) {
-        case 1:  // Neon
-            colDigit = dma_display->color565(0,  255, 200);
-            colColon = dma_display->color565(0,  220, 255);
-            colBar   = dma_display->color565(0,  180, 255); break;
-        case 2:  // Retro
-            colDigit = dma_display->color565(255, 160,  0);
-            colColon = dma_display->color565(180,  80,  0);
-            colBar   = dma_display->color565(200,  80,  0); break;
-        case 3:  // Matrix
-            colDigit = dma_display->color565(0,  255, 65);
-            colColon = dma_display->color565(0,  200, 40);
-            colBar   = dma_display->color565(0,  160, 20); break;
-        case 4:  // Fire
-            colDigit = dma_display->color565(255,  80,  0);
-            colColon = dma_display->color565(255,  60,  0);
-            colBar   = dma_display->color565(255, 180,  0); break;
-        case 5:  // Ice
-            colDigit = dma_display->color565(180, 230, 255);
-            colColon = dma_display->color565(140, 200, 255);
-            colBar   = dma_display->color565(100, 200, 255); break;
-        case 6:  // Violet
-            colDigit = dma_display->color565(200,  80, 255);
-            colColon = dma_display->color565(180,  60, 255);
-            colBar   = dma_display->color565(120,  20, 255); break;
-        case 7:  // Gold
-            colDigit = dma_display->color565(255, 200,  20);
-            colColon = dma_display->color565(200, 160,  10);
-            colBar   = dma_display->color565(220, 140,   0); break;
-        case 8:  // Spring
-            colDigit = dma_display->color565(255, 150, 180);
-            colColon = dma_display->color565(255, 100, 150);
-            colBar   = dma_display->color565(120, 220, 100); break;
-        case 9:  // Summer
-            colDigit = dma_display->color565(255, 230,   0);
-            colColon = dma_display->color565(255, 200,   0);
-            colBar   = dma_display->color565(255, 120,   0); break;
-        case 10: // Autumn
-            colDigit = dma_display->color565(255, 100,   0);
-            colColon = dma_display->color565(220,  70,   0);
-            colBar   = dma_display->color565(180,  40,   0); break;
-        case 11: // Winter
-            colDigit = dma_display->color565(200, 240, 255);
-            colColon = dma_display->color565(160, 220, 255);
-            colBar   = dma_display->color565( 80, 160, 220); break;
-        case 12: // Storm
-            colDigit = dma_display->color565(180,   0, 255);
-            colColon = dma_display->color565(220,  80, 255);
-            colBar   = dma_display->color565(255, 220,   0); break;
-        case 13: // Sunrise
-            colDigit = dma_display->color565(255, 160,  80);
-            colColon = dma_display->color565(255, 120,  40);
-            colBar   = dma_display->color565(220,  60,  20); break;
-        case 14: // Pac-Man
-            colDigit = dma_display->color565(255, 220,   0);
-            colColon = dma_display->color565(255, 200,   0);
-            colBar   = dma_display->color565(  0,  80, 220); break;
-        case 15: // Cyberpunk
-            colDigit = dma_display->color565(255,   0, 180);
-            colColon = dma_display->color565(200,   0, 255);
-            colBar   = dma_display->color565(  0, 220, 255); break;
-        case 16: // Creeper
-            colDigit = dma_display->color565( 80, 220,   0);
-            colColon = dma_display->color565( 60, 180,   0);
-            colBar   = dma_display->color565( 30, 100,   0); break;
-        case 17: // Galaxy
-            colDigit = dma_display->color565(180, 100, 255);
-            colColon = dma_display->color565(140,  60, 255);
-            colBar   = dma_display->color565( 60,   0, 180); break;
-        case 99: // Custom RGB from color pickers
-            colDigit = customDigitCol;
-            colColon = customDigitCol;
-            colBar   = customBarCol; break;
-        default: // Minimal
-            colDigit = dma_display->color565(220, 220, 255);
-            colColon = dma_display->color565(80,  120, 255);
-            colBar   = dma_display->color565(20,   60, 220); break;
-    }
+    getClockColors(clockStyle, colDigit, colColon, colBar);
 
     // Layout: DW=10, DH=18, total = 10+2+10+6+10+2+10 = 50px → startX=7
     const int SC = 2, DW = 5*SC, GAP = 2, COL = 6;
@@ -213,28 +177,7 @@ void drawClockOverlay() {
     int s = ti.tm_sec;
 
     uint16_t colDigit, colColon, colBar;
-
-    switch (clockStyle) {
-        case 1:  colDigit=dma_display->color565(0,255,200); colColon=dma_display->color565(0,220,255); colBar=dma_display->color565(0,180,255); break;
-        case 2:  colDigit=dma_display->color565(255,160,0); colColon=dma_display->color565(180,80,0); colBar=dma_display->color565(200,80,0); break;
-        case 3:  colDigit=dma_display->color565(0,255,65); colColon=dma_display->color565(0,200,40); colBar=dma_display->color565(0,160,20); break;
-        case 4:  colDigit=dma_display->color565(255,80,0); colColon=dma_display->color565(255,60,0); colBar=dma_display->color565(255,180,0); break;
-        case 5:  colDigit=dma_display->color565(180,230,255); colColon=dma_display->color565(140,200,255); colBar=dma_display->color565(100,200,255); break;
-        case 6:  colDigit=dma_display->color565(200,80,255); colColon=dma_display->color565(180,60,255); colBar=dma_display->color565(120,20,255); break;
-        case 7:  colDigit=dma_display->color565(255,200,20); colColon=dma_display->color565(200,160,10); colBar=dma_display->color565(220,140,0); break;
-        case 8:  colDigit=dma_display->color565(255,150,180); colColon=dma_display->color565(255,100,150); colBar=dma_display->color565(120,220,100); break;
-        case 9:  colDigit=dma_display->color565(255,230,0); colColon=dma_display->color565(255,200,0); colBar=dma_display->color565(255,120,0); break;
-        case 10: colDigit=dma_display->color565(255,100,0); colColon=dma_display->color565(220,70,0); colBar=dma_display->color565(180,40,0); break;
-        case 11: colDigit=dma_display->color565(200,240,255); colColon=dma_display->color565(160,220,255); colBar=dma_display->color565(80,160,220); break;
-        case 12: colDigit=dma_display->color565(180,0,255); colColon=dma_display->color565(220,80,255); colBar=dma_display->color565(255,220,0); break;
-        case 13: colDigit=dma_display->color565(255,160,80); colColon=dma_display->color565(255,120,40); colBar=dma_display->color565(220,60,20); break;
-        case 14: colDigit=dma_display->color565(255,220,0); colColon=dma_display->color565(255,200,0); colBar=dma_display->color565(0,80,220); break;
-        case 15: colDigit=dma_display->color565(255,0,180); colColon=dma_display->color565(200,0,255); colBar=dma_display->color565(0,220,255); break;
-        case 16: colDigit=dma_display->color565(80,220,0); colColon=dma_display->color565(60,180,0); colBar=dma_display->color565(30,100,0); break;
-        case 17: colDigit=dma_display->color565(180,100,255); colColon=dma_display->color565(140,60,255); colBar=dma_display->color565(60,0,180); break;
-        case 99: colDigit=customDigitCol; colColon=customDigitCol; colBar=customBarCol; break;
-        default: colDigit=dma_display->color565(220,220,255); colColon=dma_display->color565(80,120,255); colBar=dma_display->color565(20,60,220); break;
-    }
+    getClockColors(clockStyle, colDigit, colColon, colBar);
 
     const int SC = 2, DW = 5*SC, GAP = 2, COL = 6;
     const int totalW = DW*4 + GAP*3 + COL;
@@ -295,11 +238,19 @@ bool decodeB64(const String& s, uint8_t*& out, int& outLen) {
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
+static inline uint8_t clamp8(int v) {
+    if (v > 255) return 255;
+    if (v < 0)   return 0;
+    return (uint8_t)v;
+}
+
 void drawTestPattern() {
-    for (int y=0;y<PANEL_RES_Y;y++) for (int x=0;x<PANEL_RES_X;x++) {
-        uint8_t r=(x*4)>255?255:(x*4), g=(y*4)>255?255:(y*4);
-        dma_display->drawPixel(x, y, dma_display->color565(r,g,0));
-    }
+    for (int y=0; y<PANEL_RES_Y; y++)
+        for (int x=0; x<PANEL_RES_X; x++) {
+            uint8_t r = clamp8(x * 4);
+            uint8_t g = clamp8(y * 4);
+            dma_display->drawPixel(x, y, dma_display->color565(r, g, 0));
+        }
     dma_display->flipDMABuffer();
 }
 
@@ -700,6 +651,5 @@ void loop() {
         }
     }
 }
-
 
 
